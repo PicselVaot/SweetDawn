@@ -1,0 +1,15 @@
+[Unit]
+Description=AML005 ambient light daemon
+After=bluetooth.target local-fs.target aml005-sync-clock.service
+Wants=bluetooth.target aml005-sync-clock.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/aml005_ambient --config /etc/aml005.conf
+Restart=always
+RestartSec=3
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

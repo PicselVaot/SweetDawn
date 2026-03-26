@@ -1,0 +1,10 @@
+[Unit]
+Description=Synchronize AML005 clock
+After=bluetooth.target time-sync.target
+Wants=bluetooth.target time-sync.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/aml005_sync_clock --config /etc/aml005.conf
+User=root
+Group=root

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run AML005 clock sync every midnight
+
+[Timer]
+OnCalendar=*-*-* 00:00:00
+Persistent=true
+Unit=aml005-sync-clock.service
+
+[Install]
+WantedBy=timers.target
