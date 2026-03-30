@@ -5,7 +5,7 @@ Wants=bluetooth.target aml005-sync-clock.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/aml005_ambient --config /etc/aml005.conf
+ExecStart=/usr/local/bin/aml005_ambient --config /etc/aml005.conf --reference /etc/aml005-reference.yuyv
 Restart=always
 RestartSec=3
 User=root

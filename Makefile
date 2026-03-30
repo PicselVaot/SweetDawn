@@ -19,12 +19,14 @@ aml005_sync_clock: src/sync_clock.o $(COMMON_OBJ)
 src/%.o: src/%.c include/aml005.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
-install: all
-	install -d $(DESTDIR)$(PREFIX)/bin
-	install -m 0755 aml005_ambient $(DESTDIR)$(PREFIX)/bin/aml005_ambient
-	install -m 0755 aml005_sync_clock $(DESTDIR)$(PREFIX)/bin/aml005_sync_clock
-	install -d $(DESTDIR)/etc
-	install -m 0644 aml005.conf.example $(DESTDIR)/etc/aml005.conf
+install:
+        install -d $(DESTDIR)$(PREFIX)/bin
+        install -m 0755 aml005_ambient $(DESTDIR)$(PREFIX)/bin/aml005_ambient
+        install -m 0755 aml005_sync_clock $(DESTDIR)$(PREFIX)/bin/aml005_sync_clock
+
+        install -d $(DESTDIR)/etc
+        [ -f $(DESTDIR)/etc/aml005.conf ] || install -m 0644 aml005.conf.example $(DESTDIR)/etc/aml005.conf
+        install -m 0644 aml005.conf.example $(DESTDIR)/etc/aml005.conf.example
 	install -d $(DESTDIR)/etc/systemd/system
 	install -m 0644 systemd/aml005-ambient.service $(DESTDIR)/etc/systemd/system/
 	install -m 0644 systemd/aml005-sync-clock.service $(DESTDIR)/etc/systemd/system/
