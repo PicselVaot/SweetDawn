@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int verbose = 0;
+
 static void trim(char *s) {
     if (!s) return;
     size_t len = strlen(s);
@@ -81,11 +83,14 @@ int main(int argc, char **argv) {
     load_config(config_path, &cfg);
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "c:m:n:", options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "c:m:n:v", options, NULL)) != -1) {
         switch (opt) {
             case 'c': config_path = optarg; break;
             case 'm': snprintf(cfg.mac, sizeof(cfg.mac), "%s", optarg); break;
             case 'n': cfg.channel = (uint8_t)atoi(optarg); break;
+            case 'v':
+                verbose = 1;
+                break;
             default: break;
         }
     }
@@ -99,6 +104,8 @@ int main(int argc, char **argv) {
     if (!client) {
         fprintf(stderr, "Failed to create AML005 client.\n");
         return 1;
+    } else {
+        if (verbose) printf("Client created\n");
     }
 
     aml005_status_t rc = aml005_connect(client);
@@ -106,6 +113,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "connect failed: %s\n", aml005_status_str(rc));
         aml005_destroy(client);
         return 1;
+    } else {
+        if (verbose) printf("Connected to AML005\n");
     }
 
     rc = aml005_handshake(client, 0x16);
@@ -113,6 +122,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "handshake failed: %s\n", aml005_status_str(rc));
         aml005_destroy(client);
         return 1;
+    } else {
+        if (verbose) printf("Handshake OK\n");
     }
 
     rc = aml005_set_time_now(client);
@@ -120,8 +131,11 @@ int main(int argc, char **argv) {
         fprintf(stderr, "set_time failed: %s\n", aml005_status_str(rc));
         aml005_destroy(client);
         return 1;
+    } else {
+        if (verbose) printf("Time synced\n");
     }
-
+    
+    if (verbose) printf("Done\n");
     aml005_destroy(client);
     return 0;
 }

@@ -1,0 +1,27 @@
+# Build artifacts
+*.o
+aml005_ambient
+aml005_sync_clock
+
+# Config locale (ne jamais versionner)
+aml005.conf
+
+# Reference frame (machine-specific)
+*.yuyv
+/etc/aml005-reference.yuyv
+
+# Logs
+*.log
+
+# Editor / system
+*~
+*.swp
+*.swo
+.DS_Store
+
+# Build directories (si jamais ajout futur)
+build/
+dist/
+
+# Systemd temp files
+*.service~

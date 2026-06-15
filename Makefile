@@ -20,20 +20,20 @@ src/%.o: src/%.c include/aml005.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 install:
-        install -d $(DESTDIR)$(PREFIX)/bin
-        install -m 0755 aml005_ambient $(DESTDIR)$(PREFIX)/bin/aml005_ambient
-        install -m 0755 aml005_sync_clock $(DESTDIR)$(PREFIX)/bin/aml005_sync_clock
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 0755 aml005_ambient $(DESTDIR)$(PREFIX)/bin/aml005_ambient
+	install -m 0755 aml005_sync_clock $(DESTDIR)$(PREFIX)/bin/aml005_sync_clock
 
-        install -d $(DESTDIR)/etc
-        if [ ! -f $(DESTDIR)/etc/aml005.conf ]; then \
-            install -m 0644 aml005.conf.example $(DESTDIR)/etc/aml005.conf; \
-            echo ""; \
-            echo ">>> aml005.conf created at /etc/aml005.conf"; \
-            echo ">>> Please edit it before running the service:"; \
-            echo ">>> sudo nano /etc/aml005.conf"; \
-            echo ""; \
-        fi
-        install -m 0644 aml005.conf.example $(DESTDIR)/etc/aml005.conf.example
+	install -d $(DESTDIR)/etc
+	if [ ! -f $(DESTDIR)/etc/aml005.conf ]; then \
+	    install -m 0644 aml005.conf.example $(DESTDIR)/etc/aml005.conf; \
+	    echo ""; \
+	    echo ">>> aml005.conf created at /etc/aml005.conf"; \
+	    echo ">>> Please edit it before running the service:"; \
+	    echo ">>> sudo nano /etc/aml005.conf"; \
+	    echo ""; \
+	fi
+	install -m 0644 aml005.conf.example $(DESTDIR)/etc/aml005.conf.example
 	install -d $(DESTDIR)/etc/systemd/system
 	install -m 0644 systemd/aml005-ambient.service $(DESTDIR)/etc/systemd/system/
 	install -m 0644 systemd/aml005-sync-clock.service $(DESTDIR)/etc/systemd/system/
