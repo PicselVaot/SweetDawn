@@ -1,150 +1,124 @@
 # SweetDawn
 
-**A C-based control layer for AML005 devices over Bluetooth.**
+**Control the AML005 sunrise alarm clock from Linux: a C service over Bluetooth, a command-line client, and Home Assistant integration.**
 
-SweetDawn aims to provide a reliable and extensible way to communicate with AML005 devices, maintain their state, and expose their functionality to other applications.
-
-The project is designed to run as a persistent background service, allowing multiple clients to interact with the same device without managing the Bluetooth connection themselves.
+SweetDawn runs on a Raspberry Pi as a background service. It keeps a single Bluetooth connection to the AML005 open, tracks its state, and lets several clients control it at the same time: the `sweetdawn-ctl` command-line client, Home Assistant through MQTT, or any program speaking its JSON protocol.
 
 ## Features
 
-- **Bluetooth communication** — Connect to an AML005 device over Bluetooth RFCOMM.
-- **Protocol handling** — Build, send, receive, and parse AML005 protocol frames.
-- **Command system** — Organize device commands in a structured and extensible registry.
-- **State management** — Maintain an in-memory representation of the device state.
-- **Configuration** — Load device and application settings from JSON.
-- **Persistent service** — Keep a single Bluetooth connection alive, refresh the device state periodically, and reconnect automatically with backoff.
-- **Clock and next alarm** — Keep the AML005 clock in sync with the Raspberry Pi, and tell when each alarm will ring next (`in 11 h 05 min`).
-- **Local IPC** — Serve multiple clients over a Unix domain socket with newline-delimited JSON.
+- **Full device control** — Light, mood light (color and scenes), FM radio, both alarms (time, days, tone, sunrise), display settings and Bluetooth speaker.
+- **Persistent service** — One Bluetooth connection, kept alive and re-established automatically when the AML005 comes back.
+- **Clock and next alarm** — Keeps the AML005 clock on time and tells when each alarm will ring next (`in 11 h 05 min`).
 - **Command-line client** — `sweetdawn-ctl Light/Enable true`, answered in about 100 ms through the open connection.
-- **systemd integration** — Start the service at boot and restart it on failure.
-- **Home Assistant (MQTT)** — Every function of the device appears automatically in Home Assistant: light, mood light, radio, alarms, settings.
-- **Device control** — Read and change settings, alarms, light, mood light, radio and Bluetooth speaker through IPC.
-- **Automated tests** — Test protocol handling, configuration, state management, command registration, link supervision, and IPC.
+- **Home Assistant** — Every function appears automatically through MQTT discovery, including "next alarm" timestamps usable in automations.
+- **Validated commands** — Every value is checked (type, range, allowed choices) before anything is sent to the device.
+- **Documented protocol** — The AML005 Bluetooth protocol, recovered from the original Android app and checked on the device: [docs/PROTOCOL.md](docs/PROTOCOL.md).
+- **Tested** — Protocol, configuration, state, commands, link supervision, IPC server, and end-to-end command handling against a simulated device.
+- **systemd services** — Start at boot, restart on failure, logs in the journal.
 
 ### Planned
 
-- **State events** — Notify connected clients when the device state changes.
-- **Graphical interface** — Provide a GUI client alongside the command-line interface.
-
-> SweetDawn is under active development. Features listed under *Planned* are not implemented yet.
+- **Live events** — Report alarms ringing, timers ending and state changes as they happen, instead of polling.
+- **Graphical client**.
 
 ## Architecture
 
-The long-term goal is to centralize device communication in a single service:
-
 ```text
-                  +----------------+
-                  |      AML005    |
-                  +-------+--------+
+                    +-----------+
+                    |  AML005   |
+                    +-----+-----+
+                          | Bluetooth RFCOMM
+                    +-----+-----+
+                    | SweetDawn |  owns the connection, tracks state,
+                    |  service  |  validates and runs commands
+                    +-----+-----+
+                          | Unix socket, JSON
+         +----------------+----------------+
+         |                |                |
+  sweetdawn-ctl      MQTT bridge      your program
                           |
-                       Bluetooth
-                          |
-                  +-------+--------+
-                  |    SweetDawn   |
-                  |   C service    |
-                  |                |
-                  |  Device state  |
-                  |  Command logic |
-                  +-------+--------+
-                          |
-                     Local IPC
-                          |
-              +-----------+-----------+
-              |           |           |
-           CLI client  GUI client  MQTT bridge
+                   Home Assistant
 ```
 
-SweetDawn will own the Bluetooth connection and maintain the authoritative device state. Clients will send commands to the service and receive responses or state updates.
+Only the service talks to the AML005, which accepts a single connection at a time. Clients never touch Bluetooth.
 
-This design avoids having multiple applications independently connect to the same device.
+## Installation
 
-## Requirements
+The project targets Linux and is meant to run on a Raspberry Pi with a Bluetooth adapter.
 
-The project targets Linux and is intended to run on a Raspberry Pi.
-
-Build dependencies on Debian-based systems:
+**1. Dependencies** (Debian / Raspberry Pi OS):
 
 ```bash
 sudo apt update
 sudo apt install build-essential pkg-config libbluetooth-dev libjson-c-dev
+sudo apt install python3-paho-mqtt     # only for Home Assistant
 ```
 
-A compatible Bluetooth adapter and an accessible AML005 device are required for live communication tests.
-
-## Build
-
-Clone the repository:
+**2. Build and test:**
 
 ```bash
 git clone https://github.com/PicselVaot/SweetDawn.git
 cd SweetDawn
-```
-
-Compile the project:
-
-```bash
 make
-```
-
-The build produces the project binaries in the `bin/` directory.
-
-## Tests
-
-Run the automated test suite:
-
-```bash
 make test
 ```
 
-The test suite covers the core components without requiring a live Bluetooth connection.
+The tests use a simulated device: no Bluetooth needed.
 
-To check communication with a real AML005, run the one-shot CLI (see [Usage](#usage)): it prints every frame sent and received.
-
-## Configuration
-
-SweetDawn reads its devices from `config/aml.json`. Create it from the provided example:
+**3. Configure your device** from the example:
 
 ```bash
 cp config/aml.example.json config/aml.json
 ```
 
-Then adjust each entry to your setup:
-
 | Field     | Meaning                                    |
 |-----------|--------------------------------------------|
 | `name`    | Alias used to select the device            |
 | `AML_MAC` | Bluetooth address of the AML005            |
-| `AML_CHN` | RFCOMM channel of the AML005               |
-| `BLT_MAC` | Bluetooth address of the local adapter     |
+| `AML_CHN` | RFCOMM channel of the AML005 (usually 1)   |
+| `BLT_MAC` | Bluetooth address of the local adapter (`hciconfig`) |
 
-When no device name is given on the command line, the first entry is used.
+When no device name is given, the first entry is used. `config/aml.json` contains addresses specific to your setup and is ignored by Git.
 
-**Important:** `config/aml.json` contains addresses specific to your setup and is ignored by Git. Only `config/aml.example.json`, with placeholder values, is versioned.
-
-## Usage
-
-Both programs must be started from the project root, where `config/` is located.
-
-### One-shot CLI
-
-Connect, read the device status and settings, print every frame in hexadecimal, then exit. Useful to check the hardware or study the protocol:
+**4. Check the hardware** with the one-shot diagnostic, which prints every frame sent and received:
 
 ```bash
-./bin/sweetdawn [device_name]
+./bin/sweetdawn
 ```
 
-The AML005 accepts only one connection at a time: stop the service first (`sudo systemctl stop sweetdawn`), then start it again afterwards.
-
-### Service
-
-The service keeps a single Bluetooth connection to the AML005 open, reconnects automatically, and executes commands sent by clients. Install it as a systemd service (requires sudo):
+**5. Install the service** (requires sudo):
 
 ```bash
 make install-service
+sweetdawn-ctl status
 ```
 
-It then starts at boot and restarts after a crash. Useful commands:
+**6. Optional: Home Assistant** — see [MQTT bridge](#mqtt-bridge-home-assistant).
+
+## Usage
+
+### Command-line client
+
+`sweetdawn-ctl` sends one command to the running service and prints the answer. It works from any directory.
+
+```bash
+sweetdawn-ctl status                      # link, settings, AML clock
+sweetdawn-ctl Light                       # read the light state
+sweetdawn-ctl Light/Enable true           # turn the light on
+sweetdawn-ctl Mood/Scene Wave             # mood light scene
+sweetdawn-ctl Radio/>>                    # seek the next station
+sweetdawn-ctl Alarm/1                     # alarm 1, with its next trigger
+sweetdawn-ctl Alarm/1/Time 07:30          # set alarm 1
+sweetdawn-ctl "Alarm/1/Tone volume" 5     # names with spaces need quotes
+sweetdawn-ctl "Settings/Set time" 07:45   # set the AML clock
+sweetdawn-ctl commands                    # every available command
+```
+
+**Every command, with its values and limits, is listed in [docs/COMMANDS.md](docs/COMMANDS.md).**
+
+Exit code: 0 on success, 1 if the command was refused or failed, 2 if the service is unreachable. Set `SWEETDAWN_SOCKET` to use another socket path.
+
+### Service
 
 ```bash
 systemctl status sweetdawn          # is it running?
@@ -153,35 +127,33 @@ sudo systemctl restart sweetdawn    # after rebuilding with make
 make uninstall-service              # remove it
 ```
 
-The IPC socket is `/run/sweetdawn/sweetdawn.sock`. To run the service by hand instead, pick another socket path:
+The service reads the device state every 60 s, which also detects a dead link. While the AML005 is off or out of range it keeps trying to reconnect, waiting longer after each failure (up to 30 s).
+
+**AML005 clock.** The device clock cannot be read back, but SweetDawn sets it, so it knows it: it remembers the offset from the Raspberry Pi clock. In `auto` time mode, the service sets the AML005 clock when it connects and once a day, which also follows daylight saving changes. In `manual` mode, the clock may have been changed with the device buttons, so it is reported as unknown.
+
+The IPC socket is `/run/sweetdawn/sweetdawn.sock`. To run the service by hand, from the project root, pick another socket path:
 
 ```bash
 ./bin/sweetdawn-service [device_name] /tmp/sweetdawn.sock
+SWEETDAWN_SOCKET=/tmp/sweetdawn.sock sweetdawn-ctl status
 ```
 
-### Command-line client
+### One-shot diagnostic
 
-`sweetdawn-ctl` sends one command to the running service and prints the answer. `make install-service` links it into `/usr/local/bin`:
-
-```bash
-sweetdawn-ctl status
-sweetdawn-ctl Light                       # read the light state
-sweetdawn-ctl Light/Enable true           # turn the light on
-sweetdawn-ctl Radio/>>                    # seek the next station
-sweetdawn-ctl Alarm/1/Time 07:30          # set alarm 1
-sweetdawn-ctl "Alarm/1/Tone volume" 5     # names with spaces need quotes
-sweetdawn-ctl commands                    # every available command
-```
-
-**Every available command, with its values and limits, is listed in [docs/COMMANDS.md](docs/COMMANDS.md).**
-
-Exit code: 0 on success, 1 if the command was refused or failed, 2 if the service is unreachable. Set `SWEETDAWN_SOCKET` to use another socket path.
+`./bin/sweetdawn [device_name]` connects directly, reads the status and settings, prints every frame in hexadecimal, then exits. Useful to check the hardware or study the protocol. Run it from the project root, with the service stopped (`sudo systemctl stop sweetdawn`): the AML005 accepts only one connection.
 
 ### MQTT bridge (Home Assistant)
 
-`mqtt/sweetdawn_mqtt.py` connects the service to an MQTT broker and announces every function of the AML005 to Home Assistant (MQTT discovery): lights, radio, alarms with their days, settings, and a Bluetooth connectivity sensor. Commands from Home Assistant go through the service like any other client.
+`mqtt/sweetdawn_mqtt.py` connects the service to an MQTT broker and announces the AML005 to Home Assistant through MQTT discovery:
 
-Requires `python3-paho-mqtt`. Configure it from the example, then install it as a systemd service:
+- **Light** and **Mood** lights (brightness, color, scenes as effects);
+- **Radio** switch, volume, preset, frequency, seek and tune buttons;
+- **Alarms**: on/off, time, each day, tone, volume, snooze, sunrise; stop and snooze buttons;
+- **Next alarm** timestamps: Home Assistant shows "in 11 hours" and can use them in automations;
+- **AML clock**: shows the device time and lets you set another one;
+- **Settings**, and a **Bluetooth connectivity** sensor.
+
+Commands from Home Assistant go through the service like any other client. Install it:
 
 ```bash
 cp config/mqtt.example.json config/mqtt.json   # broker address, credentials file
@@ -195,7 +167,7 @@ The bridge reads the device state every `poll_seconds` (30 s by default) and one
 
 ### IPC protocol
 
-Each message is a single JSON object terminated by a newline (`\n`), at most 4096 bytes long.
+Each message is a single JSON object on one line, terminated by `\n`. Requests are at most 4096 bytes.
 
 Request:
 
@@ -223,24 +195,28 @@ The full list of commands is in [docs/COMMANDS.md](docs/COMMANDS.md).
 
 | Command | Args | Effect |
 |---|---|---|
-| `status` | none | Link state and last known settings, answered instantly without querying the device |
+| `status` | none | Link state, last known settings and AML clock, answered instantly without querying the device |
 | `commands` | none | The full command tree: names, value types, ranges, choices |
-| a group, e.g. `Light` | none | Reads that part of the device: `Settings`, `Alarm`, `Alarm/1`, `Light`, `Mood`, `Radio` |
+| a group, e.g. `Light` | none | Reads that part of the device: `Settings`, `Alarm`, `Alarm/1`, `Alarm/2`, `Light`, `Mood`, `Radio` |
 | a setting, e.g. `Light/Brightness` | one value | Changes it; the value is checked first (type, range, allowed choices) |
 | an action, e.g. `Radio/>>` | none | Runs it: `Settings/Sync time`, `Alarm/Stop`, `Alarm/Snooze`, `Radio/<`, `Radio/>`, `Radio/<<`, `Radio/>>` |
 
-Values may be sent as JSON strings, numbers or booleans: `[75]`, `["75"]`, `[true]`. Special formats: alarm `Time` is `"HH:MM"`, `Mood/Color` is `"R,G,B"`, alarm `Days` is a bit mask (bit 0 = Sunday … bit 6 = Saturday).
+Values may be sent as JSON strings, numbers or booleans: `[75]`, `["75"]`, `[true]`. Special formats: alarm `Time` is `"HH:MM"`, `Mood/Color` is `"R,G,B"`, alarm `Days` is a bit mask (bit 0 = Sunday … bit 6 = Saturday), `Settings/Set time` is `"HH:MM"`, `"HH:MM:SS"` or `"YYYY-MM-DD HH:MM"`.
 
 `status` result:
 
 ```json
 {"connected": true, "known": true, "age_ms": 842, "authorization": 22,
- "settings": {"display_brightness": "H", "display_time": "24", "time": "auto", "feedback": true, "fade": true}}
+ "settings": {"display_brightness": "H", "display_time": "24", "time": "auto", "feedback": true, "fade": true},
+ "clock": {"known": true, "time": "2026-10-12T18:27:38+02:00", "offset_s": 0}}
 ```
 
 - `connected` — the Bluetooth link is currently open.
-- `known` — the state has been read at least once. The other fields are present only when `known` is true.
-- `age_ms` — age of the last state reading (refreshed every 60 s). During an outage the last known values are kept; use this field to judge their freshness.
+- `known` — the state has been read at least once. `age_ms`, `authorization` and `settings` are present only when `known` is true.
+- `age_ms` — age of the last state reading. During an outage the last known values are kept; use this field to judge their freshness.
+- `clock` — the AML005 clock as set by SweetDawn, and its offset from the system clock; `known` is false in manual time mode or before the first setting.
+
+An alarm read (`Alarm/1`) also returns its next trigger: `next` (ISO 8601, or `null` if the alarm is off or the clock unknown), `in` (`"11 h 05 min"`) and `in_s` (seconds).
 
 Some device commands are not acknowledged by the AML005 (see [docs/PROTOCOL.md](docs/PROTOCOL.md)): success then means the command was sent. Read the group back to check the effect.
 
@@ -265,6 +241,26 @@ Quick test from a shell:
 echo '{"type":"request","id":1,"command":"Light","args":[]}' | nc -U -q1 /run/sweetdawn/sweetdawn.sock
 ```
 
+## Troubleshooting
+
+**`Service injoignable sur /run/sweetdawn/sweetdawn.sock`** — The service is not running. Check `systemctl status sweetdawn` and `journalctl -u sweetdawn -n 50`.
+
+**`AML_DISCONNECTED`, or `connected: false` in `status`** — The service cannot reach the AML005. Check that the device is powered and within range. It only accepts one connection: close the original mobile app, and stop the service before using `./bin/sweetdawn`. The journal shows each attempt (`Connexion à l'AML005...`).
+
+**`connect AML005: Device or resource busy`** (one-shot diagnostic) — Another program holds the connection, usually the service: `sudo systemctl stop sweetdawn` first.
+
+**`AML_TIMEOUT` on every command right after connecting** — The AML005 ignores everything until it receives the status request; the service sends it on each connection. If it persists, restart the service.
+
+**The clock cannot be set, or `clock.known` is false** — In `manual` time mode the AML005 ignores clock updates from outside. `Settings/Set time` and `Settings/Sync time` switch back to `auto` first; `sweetdawn-ctl Settings/Time auto` does it too.
+
+**The mood light always shows Rainbow** — Turning the mood light on always restarts the Rainbow scene, even when it is already on. Send the scene or color after `Mood/Enable true`. The MQTT bridge already does this.
+
+**A command returns OK but nothing changes** — Some commands are not acknowledged by the AML005 (see [docs/PROTOCOL.md](docs/PROTOCOL.md)). Read the group back (`sweetdawn-ctl Light`) to see the actual state.
+
+**Home Assistant shows no AML005 entities** — Check `journalctl -u sweetdawn-mqtt -n 50`: a `Connexion MQTT refusée` line points to `config/mqtt.json` or the credentials file. Entities show as unavailable while the AML005 is disconnected.
+
+**Service started but `bind` fails with "Address already in use"** — Another instance is running. A socket left over by a crash is replaced automatically; a socket still in use, or a regular file at that path, is never removed.
+
 ## Project structure
 
 The code is split into layers, one directory each.
@@ -275,7 +271,7 @@ src/
 │   ├── cli.c                #   bin/sweetdawn: one-shot diagnostic
 │   ├── service.c            #   bin/sweetdawn-service: persistent service
 │   ├── ctl.c                #   bin/sweetdawn-ctl: command-line client
-│   └── handlers.c / .h      #   IPC commands of the service
+│   └── handlers.c / .h      #   IPC commands, AML clock, next alarm
 ├── ipc/                     # Talking to clients
 │   ├── ipc_server.c / .h    #   Unix domain socket server
 │   └── ipc_protocol.c / .h  #   JSON message parsing and responses
@@ -292,12 +288,12 @@ src/
     ├── transport.c / .h     #   Bluetooth RFCOMM connection
     └── protocol.c / .h      #   Frame format, building and parsing
 
-test/                        # One test program per module (fake_aml.c: fake device)
+test/                        # One test program per module (fake_aml.c: simulated device)
 mqtt/sweetdawn_mqtt.py       # MQTT bridge to Home Assistant
 docs/COMMANDS.md             # Every command, with values and limits
 docs/PROTOCOL.md             # AML005 Bluetooth protocol reference
 systemd/                     # systemd unit templates (make install-service, install-mqtt)
-config/                      # Example configuration (local aml.json is ignored)
+config/                      # Example configuration (local files are ignored)
 ```
 
 Data flow in the service:
@@ -308,8 +304,6 @@ AML005 <--RFCOMM--> aml/transport <--frames--> core/sweetdawn + core/control <--
 
 ## Development principles
 
-SweetDawn follows a few core principles:
-
 - **Single ownership:** one service owns the connection to the AML005 device.
 - **Separation of concerns:** transport, protocol, commands, state, and client interfaces remain distinct.
 - **Testability:** core logic should be testable independently of the physical device whenever possible.
@@ -318,21 +312,18 @@ SweetDawn follows a few core principles:
 
 ## Roadmap
 
-- [x] Bluetooth transport
-- [x] Protocol parsing
-- [x] JSON configuration
-- [x] Command registry
-- [x] In-memory device state
-- [x] Core automated tests
-- [x] Persistent background service
-- [x] Automatic Bluetooth reconnection
+- [x] Bluetooth transport and protocol
+- [x] Persistent service with automatic reconnection
 - [x] Unix domain socket IPC
-- [x] Device control commands over IPC
-- [ ] State change events
-- [x] CLI client communicating with the service
-- [x] MQTT integration
+- [x] Full device control over IPC
+- [x] Command-line client
+- [x] AML clock tracking and next alarm
+- [x] MQTT integration (Home Assistant)
+- [x] systemd services
+- [ ] Live state change events
 - [ ] Graphical client
-- [x] systemd service integration
+
+See [TODO.md](TODO.md) for details.
 
 ## License
 

@@ -17,15 +17,26 @@ Turn SweetDawn into a persistent background service that centralizes Bluetooth c
 | [ ] | 5. Events and State | Notify connected clients of state changes | In-memory state is updated when relevant frames are received, and clients are notified of changes |
 | [x] | 6. MQTT Integration | Expose commands and device state through MQTT | Incoming commands are handled by SweetDawn, and device state is published to configured topics |
 | [ ] | 7. systemd Service | Ensure SweetDawn runs continuously | Automatic startup, graceful shutdown, accessible logs, and configurable restart policy |
-| [ ] | 8. Documentation | Document installation, configuration, and usage | README, example configuration, and troubleshooting instructions are up to date |
+| [x] | 8. Documentation | Document installation, configuration, and usage | README, example configuration, and troubleshooting instructions are up to date |
 
-> **Step 6 note:** the bridge (`mqtt/sweetdawn_mqtt.py`) polls the device every 30 s. Once step 5 delivers events, it should publish state changes as they happen instead.
->
-> **Step 4 note:** not every unacknowledged command (mood color, scene, volumes...) has been checked for its visible effect on the device yet; see docs/PROTOCOL.md for what is verified.
->
-> **Step 7 status:** the systemd service is installed and running (`make install-service`), with logs in the journal and restart on failure. Remaining before checking it off: confirm it comes back after a reboot of the Raspberry Pi.
->
-> **Step 1 status:** request, response, and error formats are implemented and documented in the README. The event format remains to be defined; it will be completed together with step 5.
+### Status notes
+
+- **Step 1:** request, response, and error formats are implemented and documented in the README. The event format remains to be defined, together with step 5.
+- **Step 4:** every AML command is reachable through IPC and tested against a simulated device. Verified on the device: all reads, acknowledged writes (settings, alarms, clock), light on/off, radio on/off, mood scenes and color. Not yet checked for their visible effect: volumes, timers, sunset, Bluetooth speaker.
+- **Step 5 (next):** the AML005 already sends unsolicited frames, listed in docs/PROTOCOL.md: alarm ringing (`C7`), sunrise starting (`C6`), light changed (`CA`), timers ending (`EB` to `EE`). Today the service discards them. The work:
+  - dispatch them in the service instead of discarding them, and update the in-memory state;
+  - define the event message format and push events to IPC clients (this also completes step 1);
+  - let the MQTT bridge publish changes as they happen instead of polling every 30 s, and expose "alarm ringing" to Home Assistant.
+- **Step 7:** both services (`sweetdawn`, `sweetdawn-mqtt`) are installed, start at boot, restart on failure, and log to the journal. Remaining before checking it off: confirm they come back after a reboot of the Raspberry Pi.
+- **Step 8:** README rewritten with installation from scratch, usage, MQTT, IPC reference and troubleshooting; every command in docs/COMMANDS.md; protocol in docs/PROTOCOL.md.
+
+## Beyond the milestones
+
+- **Bluetooth speaker state:** the read command is known (`17`) but not exposed (`Media Player` group read).
+- **Alarm with no day selected:** the next trigger assumes it rings once, at the next occurrence of its time. To confirm on the device.
+- **Unknown codes:** `05`, `06` and `11` answer with one byte of unknown meaning (docs/PROTOCOL.md).
+- **AML clock after a service restart:** an offset chosen with `Settings/Set time` is not saved; after a restart the service sets the AML005 back to the Raspberry Pi time.
+- **Graphical client:** possibly unnecessary now that Home Assistant covers it.
 
 ## Technical Requirements
 
@@ -37,16 +48,7 @@ Turn SweetDawn into a persistent background service that centralizes Bluetooth c
 - **Resilience:** the service remains available when the AML005 is temporarily unreachable and attempts to reconnect.
 - **Testing:** each milestone includes appropriate tests before proceeding to the next one.
 
-## Implementation Order
-
-The milestones are intentionally sequential. Each milestone must be implemented and tested before work begins on the next.
-
-The first priority is to define the IPC protocol, followed by the IPC server. Bluetooth connection management will then be integrated into the service before migrating CLI commands to the new architecture.
-
-The GUI and MQTT integration will subsequently reuse the same communication mechanism without duplicating device-control logic.
-
 ## Notes
 
 - Milestones are checked off only after implementation and validation.
-- Features already present in the codebase are not considered complete in this roadmap if their integration into the service is still pending.
 - Changes to the architecture must preserve the functionality of existing tests.
