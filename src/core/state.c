@@ -1,4 +1,8 @@
-#include "state.h"
+/*
+ * core/state.c — Mémorisation de l'état de l'AML005
+ */
+
+#include "core/state.h"
 
 #include <stdio.h>
 

@@ -1,4 +1,8 @@
-#include "registry.h"
+/*
+ * command/registry.c — Racine de l'arbre et recherche par chemin
+ */
+
+#include "command/registry.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -92,6 +96,7 @@ Command *registry_find_path(
             continue;
         }
 
+        /* Isoler le segment courant dans une chaîne terminée par '\0'. */
         nom = malloc(longueur + 1);
 
         if (nom == NULL) {

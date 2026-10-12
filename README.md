@@ -13,16 +13,19 @@ The project is designed to run as a persistent background service, allowing mult
 - **Command system** — Organize device commands in a structured and extensible registry.
 - **State management** — Maintain an in-memory representation of the device state.
 - **Configuration** — Load device and application settings from JSON.
-- **Automated tests** — Test protocol handling, configuration, state management, and command registration.
+- **Persistent service** — Keep a single Bluetooth connection alive, refresh the device state periodically, and reconnect automatically with backoff.
+- **Local IPC** — Serve multiple clients over a Unix domain socket with newline-delimited JSON.
+- **Automated tests** — Test protocol handling, configuration, state management, command registration, link supervision, and IPC.
 
 ### Planned
 
-- **Persistent daemon** — Keep a single Bluetooth connection alive and manage reconnections.
-- **Local IPC** — Allow clients to communicate with the service through a Unix domain socket.
+- **Device control over IPC** — Only the read-only `status` command is exposed by the service today.
+- **State events** — Notify connected clients when the device state changes.
 - **MQTT integration** — Publish device state and accept commands from a home automation system.
 - **Graphical interface** — Provide a GUI client alongside the command-line interface.
+- **systemd integration** — Start the service at boot and restart it on failure.
 
-> SweetDawn is under active development. The daemon architecture, IPC, MQTT integration, and graphical interface are planned features, not yet fully implemented.
+> SweetDawn is under active development. Features listed under *Planned* are not implemented yet.
 
 ## Architecture
 
@@ -94,39 +97,121 @@ make test
 
 The test suite covers the core components without requiring a live Bluetooth connection.
 
-To run the AML communication test explicitly:
-
-```bash
-make test-aml
-```
-
-This test requires a reachable AML005 device and a working Bluetooth configuration.
+To check communication with a real AML005, run the one-shot CLI (see [Usage](#usage)): it prints every frame sent and received.
 
 ## Configuration
 
-SweetDawn uses JSON configuration files.
+SweetDawn reads its devices from `config/aml.json`. Create it from the provided example:
 
-Create your local device configuration from the provided example, when available, and adjust it to match your Bluetooth adapter and AML005 device.
+```bash
+cp config/aml.example.json config/aml.json
+```
 
-**Important:** Device configuration may contain Bluetooth addresses specific to your setup. Keep personal configuration files out of version control. Use an example configuration with placeholder values when sharing the project.
+Then adjust each entry to your setup:
+
+| Field     | Meaning                                    |
+|-----------|--------------------------------------------|
+| `name`    | Alias used to select the device            |
+| `AML_MAC` | Bluetooth address of the AML005            |
+| `AML_CHN` | RFCOMM channel of the AML005               |
+| `BLT_MAC` | Bluetooth address of the local adapter     |
+
+When no device name is given on the command line, the first entry is used.
+
+**Important:** `config/aml.json` contains addresses specific to your setup and is ignored by Git. Only `config/aml.example.json`, with placeholder values, is versioned.
+
+## Usage
+
+Both programs must be started from the project root, where `config/` is located.
+
+### One-shot CLI
+
+Connect, read the device status and settings, print every frame in hexadecimal, then exit. Useful to check the hardware or study the protocol:
+
+```bash
+./bin/sweetdawn [device_name]
+```
+
+Do not run it while the service is running: the AML005 accepts only one connection at a time.
+
+### Service
+
+Run the persistent service:
+
+```bash
+./bin/sweetdawn-service [device_name] [socket_path]
+```
+
+The socket defaults to `/tmp/sweetdawn.sock`. The service starts even if the AML005 is unreachable and connects as soon as it becomes available.
+
+### IPC protocol
+
+Each message is a single JSON object terminated by a newline (`\n`), at most 4096 bytes long.
+
+Request:
+
+```json
+{"type": "request", "id": 1, "command": "status", "args": []}
+```
+
+`id` is an integer or a string chosen by the client; it is copied into the response.
+
+Successful response:
+
+```json
+{"type": "response", "id": 1, "ok": true, "result": {"connected": true, "known": true, "age_ms": 227, "authorization": 22, "display": 1, "date": 0, "time": 0, "feedback": 0, "fade": 0}}
+```
+
+- `connected` — the Bluetooth link is currently open.
+- `known` — the state has been read at least once. The device fields are present only when `known` is true.
+- `age_ms` — age of the last state reading. During an outage the last known values are kept; use this field to judge their freshness.
+
+Error response:
+
+```json
+{"type": "response", "id": 1, "ok": false, "error": {"code": "COMMAND_NOT_IMPLEMENTED", "message": "..."}}
+```
+
+Error codes: `INVALID_JSON`, `INVALID_REQUEST`, `UNSUPPORTED_TYPE`, `INVALID_ARGUMENTS`, `COMMAND_NOT_IMPLEMENTED`, `COMMAND_FAILED`, `STATE_UNAVAILABLE`, `INTERNAL_ERROR`.
+
+Quick test from a shell:
+
+```bash
+echo '{"type":"request","id":1,"command":"status","args":[]}' | nc -U -q1 /tmp/sweetdawn.sock
+```
 
 ## Project structure
 
+The code is split into layers, one directory each.
+
 ```text
 src/
-├── main.c                  # Application entry point
-├── sweetdawn.c / .h        # Application lifecycle and coordination
-├── aml.c / aml.h            # Bluetooth transport
-├── protocol.c / protocol.h  # AML005 protocol handling
-├── state.c / state.h        # Device state
-├── config.c / config.h      # Configuration management
-└── command/
-    ├── command.c / .h       # Command abstractions
-    ├── registry.c / .h      # Command registry
-    └── aml_commands.c / .h  # AML005 commands
+├── app/                     # Programs (each file has a main)
+│   ├── cli.c                #   bin/sweetdawn: one-shot diagnostic
+│   └── service.c            #   bin/sweetdawn-service: persistent service
+├── ipc/                     # Talking to clients
+│   ├── ipc_server.c / .h    #   Unix domain socket server
+│   └── ipc_protocol.c / .h  #   JSON message parsing and responses
+├── core/                    # Application logic
+│   ├── sweetdawn.c / .h     #   Link supervision, refresh, reconnection
+│   ├── state.c / .h         #   Last known device state
+│   └── config.c / .h        #   config/aml.json loading
+├── command/                 # Command tree (Settings, Alarm, Light, ...)
+│   ├── command.c / .h       #   Tree node, value validation
+│   ├── registry.c / .h      #   Root and lookup by path
+│   └── aml_commands.c / .h  #   The AML005 commands
+└── aml/                     # Talking to the AML005
+    ├── transport.c / .h     #   Bluetooth RFCOMM connection
+    └── protocol.c / .h      #   Frame format, building and parsing
 
-test/                        # Automated tests
-config/                      # Configuration examples and local settings
+test/                        # One test program per module
+config/                      # Example configuration (local aml.json is ignored)
+```
+
+Data flow in the service:
+
+```text
+AML005 <--RFCOMM--> aml/transport <--frames--> core/sweetdawn <--state--> app/service <--JSON--> ipc/ipc_server <--socket--> clients
 ```
 
 ## Development principles
@@ -147,9 +232,11 @@ SweetDawn follows a few core principles:
 - [x] Command registry
 - [x] In-memory device state
 - [x] Core automated tests
-- [ ] Persistent background service
-- [ ] Automatic Bluetooth reconnection
-- [ ] Unix domain socket IPC
+- [x] Persistent background service
+- [x] Automatic Bluetooth reconnection
+- [x] Unix domain socket IPC
+- [ ] Device control commands over IPC
+- [ ] State change events
 - [ ] CLI client communicating with the service
 - [ ] MQTT integration
 - [ ] Graphical client

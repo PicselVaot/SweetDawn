@@ -1,7 +1,15 @@
 #ifndef SWEETDAWN_REGISTRY_H
 #define SWEETDAWN_REGISTRY_H
 
-#include "command.h"
+/*
+ * command/registry.h — Point d'entrée de l'arbre des commandes
+ *
+ * Le registre n'est qu'une racine nommée « AML » sous laquelle sont
+ * rangées les commandes de premier niveau, plus une recherche par
+ * chemin du type "Light/Brightness".
+ */
+
+#include "command/command.h"
 
 typedef struct {
     Command root;
@@ -23,7 +31,9 @@ Command *registry_find(
 );
 
 /*
- * Recherche une commande par chemin.
+ * Recherche une commande par chemin, segments séparés par '/'.
+ * Le préfixe « AML/ » est facultatif. Les alias sont acceptés à chaque
+ * niveau. Retourne NULL si un segment est introuvable ou vide.
  *
  * Exemples :
  *   Light

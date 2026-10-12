@@ -1,4 +1,13 @@
-#include "aml_commands.h"
+/*
+ * command/aml_commands.c — Construction de l'arbre des commandes AML005
+ *
+ * Pour ajouter une commande : l'ajouter dans aml_commands_init() avec
+ * ajouter_commande(), puis préciser sa valeur avec definir_booleen,
+ * definir_entier, definir_nombre ou definir_choix. Penser à vérifier
+ * que AML_COMMAND_CAPACITY reste suffisant.
+ */
+
+#include "command/aml_commands.h"
 
 #include <string.h>
 
@@ -177,6 +186,7 @@ static int definir_choix(
 /* Paramètres communs des alarmes                                            */
 /* ------------------------------------------------------------------------- */
 
+/* Ajoute sous « Alarm N » les réglages, identiques pour les deux alarmes. */
 static int ajouter_parametres_alarme(
     AmlCommandTree *tree,
     Command *alarme
@@ -203,6 +213,7 @@ static int ajouter_parametres_alarme(
      * de validation dans une étape dédiée.
      */
 
+    /* Un bit par jour : 7 bits, donc de 0 (aucun jour) à 127 (tous). */
     command = ajouter_commande(
         tree, alarme, "Days", "Jours actifs sous forme de masque binaire"
     );
@@ -273,6 +284,10 @@ static int ajouter_parametres_alarme(
 /* Construction de l'arbre                                                   */
 /* ------------------------------------------------------------------------- */
 
+/*
+ * Construit l'arbre complet. En cas d'échec (capacité dépassée,
+ * collision de noms...), tout ce qui a été construit est libéré.
+ */
 int aml_commands_init(AmlCommandTree *tree)
 {
     if (tree == NULL) {

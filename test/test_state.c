@@ -1,5 +1,5 @@
 /*
- * test_state.c — Tests unitaires du module de gestion d'état
+ * test/test_state.c — Tests unitaires de l'état mémorisé (core/state)
  *
  * Ces tests vérifient l'initialisation et la mise à jour de l'état
  * mémorisé de l'AML005.
@@ -9,7 +9,7 @@
 
 #include <stdio.h>
 
-#include "state.h"
+#include "core/state.h"
 
 /* Vérifie que l'état est inconnu après son initialisation. */
 static int test_initialisation(void)

@@ -1,4 +1,8 @@
-#include "command.h"
+/*
+ * command/command.c — Arbre des commandes : création, recherche, validation
+ */
+
+#include "command/command.h"
 
 #include <errno.h>
 #include <math.h>
@@ -6,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Copie un message d'erreur si un tampon est fourni. */
 static void definir_erreur(
     char *message,
     size_t capacite,
@@ -19,6 +24,10 @@ static void definir_erreur(
     snprintf(message, capacite, "%s", texte);
 }
 
+/*
+ * Garantit la place pour un alias de plus.
+ * La capacité double à chaque agrandissement (4, 8, 16...).
+ */
 static int reserver_aliases(Command *command)
 {
     size_t capacite;
@@ -47,6 +56,7 @@ static int reserver_aliases(Command *command)
     return 0;
 }
 
+/* Garantit la place pour un enfant de plus (même principe). */
 static int reserver_enfants(Command *command)
 {
     size_t capacite;
@@ -294,6 +304,10 @@ Command *command_find_child(
     return NULL;
 }
 
+/*
+ * Vérifie qu'une valeur saisie (toujours du texte, comme en ligne de
+ * commande) respecte le type et les limites de la commande.
+ */
 int command_validate_value(
     const Command *command,
     const char *value,
@@ -473,6 +487,11 @@ int command_execute(
     return command->handler(command, argc, argv, context);
 }
 
+/*
+ * Libère récursivement les tableaux internes de la commande et de tous
+ * ses descendants. Les objets Command eux-mêmes ne sont pas libérés :
+ * ils appartiennent à l'appelant.
+ */
 void command_clear(Command *command)
 {
     size_t i;

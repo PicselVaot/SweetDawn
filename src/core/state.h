@@ -2,7 +2,7 @@
 #define STATE_H
 
 /*
- * state.h — Gestion de l'état connu de l'AML005
+ * core/state.h — État connu de l'AML005
  *
  * Ce module conserve en mémoire les dernières valeurs connues
  * des paramètres de l'AML005.
@@ -25,11 +25,16 @@
 typedef struct {
     bool known;
 
-    uint8_t display;
-    uint8_t date;
-    uint8_t time;
-    uint8_t feedback;
-    uint8_t fade;
+    /*
+     * Octets bruts, dans l'ordre de la réponse 0xE2 (aml/protocol.h).
+     * Correspondance probable avec le groupe « Settings » de
+     * command/aml_commands.c, à confirmer sur le matériel :
+     */
+    uint8_t display;   /* Display brightness (H / A / L) ?  */
+    uint8_t date;      /* Display time (24 h / 12 h) ?      */
+    uint8_t time;      /* Time (auto / manual) ?            */
+    uint8_t feedback;  /* Feedback (retour sonore) ?        */
+    uint8_t fade;      /* Fade (fondu lumineux) ?           */
 } AmlState;
 
 /* Initialise l'état : aucune valeur n'est encore connue. */

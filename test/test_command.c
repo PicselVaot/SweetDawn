@@ -1,5 +1,14 @@
-#include "../src/command/command.h"
-#include "../src/command/registry.h"
+/*
+ * test/test_command.c — Tests du moteur de commandes (command/command,
+ * command/registry)
+ *
+ * Vérifie la construction d'un petit arbre, les alias et leurs
+ * collisions, la recherche par chemin, la validation des valeurs et
+ * l'exécution d'un handler.
+ */
+
+#include "command/command.h"
+#include "command/registry.h"
 
 #include <assert.h>
 #include <stdio.h>

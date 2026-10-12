@@ -1,5 +1,5 @@
 /*
- * protocol.c — Construction des trames du protocole AML005
+ * aml/protocol.c — Construction et extraction des trames AML005
  *
  * Les commandes fournissent uniquement le code de commande et
  * leurs paramètres métier.
@@ -12,15 +12,10 @@
  *   - terminaison 0x0D 0x0A.
  */
 
-#include "protocol.h"
+#include "aml/protocol.h"
 
 #include <limits.h>
 #include <string.h>
-
-/* Valeurs fixes observées dans les requêtes AML005. */
-#define AML_FRAME_TYPE_REQUEST  0x0A
-#define AML_FRAME_HEADER_1      0xAB
-#define AML_FRAME_HEADER_2      0xAA
 
 /*
  * Taille totale des champs fixes qui entourent le contenu interne :
@@ -98,8 +93,8 @@ int protocol_build_request(
     output[1] = AML_FRAME_START_2;
     output[2] = AML_FRAME_TYPE_REQUEST;
     output[3] = (uint8_t)(frame_length - 4);
-    output[4] = AML_FRAME_HEADER_1;
-    output[5] = AML_FRAME_HEADER_2;
+    output[4] = AML_FRAME_HEADER;
+    output[5] = AML_FRAME_HEADER_REQUEST;
 
     /*
      * Construire le contenu interne.
@@ -294,8 +289,8 @@ int protocol_parser_next(
      * Une autre valeur indique que ce candidat n'est pas une trame
      * reconnue. On abandonne un octet puis on recherche à nouveau.
      */
-    if (parser->data[2] != 0x0A &&
-        parser->data[2] != 0x0C) {
+    if (parser->data[2] != AML_FRAME_TYPE_REQUEST &&
+        parser->data[2] != AML_FRAME_TYPE_RESPONSE) {
         protocol_parser_consume(parser, 1);
         return protocol_parser_next(
             parser, output, output_capacity, output_length
@@ -308,11 +303,12 @@ int protocol_parser_next(
      *   AB BB : réponse.
      */
     if (parser->length >= 6) {
-        uint8_t expected_header = parser->data[2] == 0x0A
-                                ? 0xAA
-                                : 0xBB;
+        uint8_t expected_header =
+            parser->data[2] == AML_FRAME_TYPE_REQUEST
+            ? AML_FRAME_HEADER_REQUEST
+            : AML_FRAME_HEADER_RESPONSE;
 
-        if (parser->data[4] != 0xAB ||
+        if (parser->data[4] != AML_FRAME_HEADER ||
             parser->data[5] != expected_header) {
             protocol_parser_consume(parser, 1);
             return protocol_parser_next(

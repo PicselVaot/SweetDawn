@@ -1,3 +1,12 @@
+/*
+ * test/test_aml_commands.c — Tests de l'arbre des commandes AML005
+ * (command/aml_commands)
+ *
+ * Vérifie que les groupes et commandes attendus existent, et que chaque
+ * type de valeur (booléen, entier, nombre, choix) accepte et refuse ce
+ * qu'il faut.
+ */
+
 #include "command/aml_commands.h"
 
 #include <assert.h>

@@ -1,11 +1,11 @@
 /*
- * config.c — Chargement et validation de la configuration AML005
+ * core/config.c — Chargement et validation de la configuration AML005
  *
  * La bibliothèque json-c est utilisée pour analyser le fichier JSON.
  * Les données sont ensuite copiées dans nos propres structures C.
  */
 
-#include "config.h"
+#include "core/config.h"
 
 #include <json-c/json.h>
 

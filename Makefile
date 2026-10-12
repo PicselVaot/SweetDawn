@@ -1,156 +1,156 @@
-.RECIPEPREFIX := >
+# ============================================================================
+#  SweetDawn — Makefile
+# ============================================================================
+#
+#  make            Compile les deux programmes et tous les tests.
+#  make test       Lance les tests automatiques (aucun Bluetooth requis).
+#  make clean      Supprime tout ce qui a été compilé (le dossier bin/).
+#
+#  Les programmes produits :
+#    bin/sweetdawn          Diagnostic ponctuel : lit l'AML puis s'arrête.
+#    bin/sweetdawn-service  Service persistant, piloté via un socket Unix.
+#
+#  Tout ce qui est compilé va dans bin/ ; les fichiers objets vont dans
+#  bin/obj/, en reproduisant l'arborescence de src/ et test/.
+#
+# ============================================================================
 
-CC = gcc
+CC       := gcc
+CFLAGS   := -std=c11 -Wall -Wextra -Wpedantic -O2
 
-CFLAGS = -Wall -Wextra -Wpedantic -std=c11 -O2
-CPPFLAGS = -Isrc $(shell pkg-config --cflags json-c)
-LDLIBS = -lbluetooth
-JSON_C_LIBS = $(shell pkg-config --libs json-c)
+# -Isrc permet d'écrire #include "aml/protocol.h" depuis n'importe où.
+# -MMD -MP demandent à gcc de noter, pour chaque .o, les .h qu'il utilise :
+# modifier un header recompile alors automatiquement les bons fichiers.
+CPPFLAGS := -Isrc -MMD -MP $(shell pkg-config --cflags json-c)
 
-OBJDIR = bin/obj
+JSON_LIBS      := $(shell pkg-config --libs json-c)
+BLUETOOTH_LIBS := -lbluetooth
 
-PROTOCOL_OBJ = $(OBJDIR)/protocol.o
-STATE_OBJ = $(OBJDIR)/state.o
-AML_OBJ = $(OBJDIR)/aml.o
-CONFIG_OBJ = $(OBJDIR)/config.o
-COMMAND_OBJ = $(OBJDIR)/command.o
-REGISTRY_OBJ = $(OBJDIR)/registry.o
-AML_COMMANDS_OBJ = $(OBJDIR)/aml_commands.o
-SWEETDAWN_OBJ = $(OBJDIR)/sweetdawn.o
-MAIN_OBJ = $(OBJDIR)/main.o
+BIN := bin
+OBJ := bin/obj
 
-.PHONY: all test test-protocol test-state test-config \
-        test-command test-aml test-aml-commands clean rebuild
 
-# Compiler les modules et préparer les tests ainsi que le programme.
-all: $(PROTOCOL_OBJ) $(STATE_OBJ) $(AML_OBJ) $(CONFIG_OBJ) \
-     $(COMMAND_OBJ) $(REGISTRY_OBJ) $(AML_COMMANDS_OBJ) \
-     $(SWEETDAWN_OBJ) bin/test_protocol bin/test_state \
-     bin/test_config bin/test_command bin/test_aml \
-     bin/test_aml_commands bin/sweetdawn
+# ----------------------------------------------------------------------------
+#  Modules
+# ----------------------------------------------------------------------------
+#  Un module = un dossier de src/. Chaque liste donne les objets qui le
+#  composent ; les programmes et les tests piochent dans ces listes.
 
-# Créer le répertoire des fichiers objets.
-$(OBJDIR):
->mkdir -p $(OBJDIR)
+# Dialogue avec l'AML005 : format des trames et transport Bluetooth.
+AML_PROTOCOL  := $(OBJ)/aml/protocol.o
+AML_TRANSPORT := $(OBJ)/aml/transport.o
 
-# ============================================================
-# Modules de base
-# ============================================================
+# Cœur applicatif : configuration, état mémorisé, supervision de la liaison.
+CORE_CONFIG    := $(OBJ)/core/config.o
+CORE_STATE     := $(OBJ)/core/state.o
+CORE_SWEETDAWN := $(OBJ)/core/sweetdawn.o
 
-$(PROTOCOL_OBJ): src/protocol.c src/protocol.h | $(OBJDIR)
->$(CC) $(CPPFLAGS) $(CFLAGS) -c src/protocol.c -o $@
+# Arbre des commandes AML (Settings, Alarm, Light, ...).
+COMMANDS := $(OBJ)/command/command.o \
+            $(OBJ)/command/registry.o \
+            $(OBJ)/command/aml_commands.o
 
-$(STATE_OBJ): src/state.c src/state.h | $(OBJDIR)
->$(CC) $(CPPFLAGS) $(CFLAGS) -c src/state.c -o $@
+# Serveur IPC : socket Unix et messages JSON.
+IPC := $(OBJ)/ipc/ipc_protocol.o \
+       $(OBJ)/ipc/ipc_server.o
 
-$(CONFIG_OBJ): src/config.c src/config.h | $(OBJDIR)
->$(CC) $(CPPFLAGS) $(CFLAGS) -c src/config.c -o $@
 
-$(AML_OBJ): src/aml.c src/aml.h src/protocol.h src/config.h | $(OBJDIR)
->$(CC) $(CPPFLAGS) $(CFLAGS) -c src/aml.c -o $@
+# ----------------------------------------------------------------------------
+#  Programmes
+# ----------------------------------------------------------------------------
 
-# ============================================================
-# Arbre de commandes
-# ============================================================
+PROGRAMS := $(BIN)/sweetdawn $(BIN)/sweetdawn-service
 
-$(COMMAND_OBJ): src/command/command.c src/command/command.h | $(OBJDIR)
->$(CC) $(CPPFLAGS) $(CFLAGS) -c src/command/command.c -o $@
+TESTS := $(BIN)/test_protocol \
+         $(BIN)/test_state \
+         $(BIN)/test_config \
+         $(BIN)/test_command \
+         $(BIN)/test_aml_commands \
+         $(BIN)/test_sweetdawn \
+         $(BIN)/test_ipc
 
-$(REGISTRY_OBJ): src/command/registry.c src/command/registry.h src/command/command.h | $(OBJDIR)
->$(CC) $(CPPFLAGS) $(CFLAGS) -c src/command/registry.c -o $@
+.PHONY: all test clean rebuild
 
-$(AML_COMMANDS_OBJ): src/command/aml_commands.c src/command/aml_commands.h \
-                     src/command/registry.h src/command/command.h \
-                     $(COMMAND_OBJ) $(REGISTRY_OBJ) | $(OBJDIR)
->$(CC) $(CPPFLAGS) $(CFLAGS) -c src/command/aml_commands.c -o $@
+all: $(PROGRAMS) $(TESTS)
 
-# ============================================================
-# Cœur applicatif SweetDawn
-# ============================================================
+# Diagnostic : n'utilise pas le cœur SweetDawn, seulement le transport.
+$(BIN)/sweetdawn: $(OBJ)/app/cli.o \
+                  $(AML_PROTOCOL) $(AML_TRANSPORT) \
+                  $(CORE_CONFIG) $(CORE_STATE)
+	$(CC) $^ $(JSON_LIBS) $(BLUETOOTH_LIBS) -o $@
 
-$(SWEETDAWN_OBJ): src/sweetdawn.c src/sweetdawn.h \
-                  src/aml.h src/config.h src/protocol.h src/state.h \
-                  src/command/aml_commands.h src/command/registry.h \
-                  | $(OBJDIR)
->$(CC) $(CPPFLAGS) $(CFLAGS) -c src/sweetdawn.c -o $@
+# Service : cœur complet + serveur IPC.
+$(BIN)/sweetdawn-service: $(OBJ)/app/service.o \
+                          $(AML_PROTOCOL) $(AML_TRANSPORT) \
+                          $(CORE_CONFIG) $(CORE_STATE) $(CORE_SWEETDAWN) \
+                          $(COMMANDS) $(IPC)
+	$(CC) $^ $(JSON_LIBS) $(BLUETOOTH_LIBS) -o $@
 
-$(MAIN_OBJ): src/main.c src/sweetdawn.h | $(OBJDIR)
->$(CC) $(CPPFLAGS) $(CFLAGS) -c src/main.c -o $@
 
-# ============================================================
-# Programme principal
-# ============================================================
+# ----------------------------------------------------------------------------
+#  Tests
+# ----------------------------------------------------------------------------
+#  Chaque test est un petit programme : test/test_X.c + les modules testés.
 
-bin/sweetdawn: $(MAIN_OBJ) $(SWEETDAWN_OBJ) \
-               $(PROTOCOL_OBJ) $(STATE_OBJ) $(AML_OBJ) $(CONFIG_OBJ) \
-               $(COMMAND_OBJ) $(REGISTRY_OBJ) $(AML_COMMANDS_OBJ)
->mkdir -p bin
->$(CC) $(CFLAGS) $^ $(JSON_C_LIBS) $(LDLIBS) -o $@
+$(BIN)/test_protocol: $(OBJ)/test/test_protocol.o $(AML_PROTOCOL)
+	$(CC) $^ -o $@
 
-# ============================================================
-# Tests
-# ============================================================
+$(BIN)/test_state: $(OBJ)/test/test_state.o $(CORE_STATE)
+	$(CC) $^ -o $@
 
-bin/test_protocol: test/test_protocol.c $(PROTOCOL_OBJ)
->mkdir -p bin
->$(CC) $(CPPFLAGS) $(CFLAGS) $^ -o $@
+$(BIN)/test_config: $(OBJ)/test/test_config.o $(CORE_CONFIG)
+	$(CC) $^ $(JSON_LIBS) -o $@
 
-bin/test_state: test/test_state.c $(STATE_OBJ)
->mkdir -p bin
->$(CC) $(CPPFLAGS) $(CFLAGS) $^ -o $@
+$(BIN)/test_command: $(OBJ)/test/test_command.o $(COMMANDS)
+	$(CC) $^ -o $@
 
-bin/test_config: test/test_config.c $(CONFIG_OBJ)
->mkdir -p bin
->$(CC) $(CPPFLAGS) $(CFLAGS) $^ $(JSON_C_LIBS) -o $@
+$(BIN)/test_aml_commands: $(OBJ)/test/test_aml_commands.o $(COMMANDS)
+	$(CC) $^ -o $@
 
-bin/test_command: test/test_command.c \
-                  src/command/command.c src/command/registry.c
->mkdir -p bin
->$(CC) $(CPPFLAGS) $(CFLAGS) $^ -o $@
+# Le test fournit lui-même de faux aml_connect/aml_send/... et config_load :
+# transport.o et config.o ne sont donc volontairement PAS liés ici.
+$(BIN)/test_sweetdawn: $(OBJ)/test/test_sweetdawn.o \
+                       $(CORE_SWEETDAWN) $(CORE_STATE) \
+                       $(AML_PROTOCOL) $(COMMANDS)
+	$(CC) $^ -o $@
 
-bin/test_aml: test/test_aml.c $(PROTOCOL_OBJ) $(AML_OBJ) $(CONFIG_OBJ)
->mkdir -p bin
->$(CC) $(CPPFLAGS) $(CFLAGS) $^ $(JSON_C_LIBS) $(LDLIBS) -o $@
+$(BIN)/test_ipc: $(OBJ)/test/test_ipc.o $(IPC)
+	$(CC) $^ $(JSON_LIBS) -o $@
 
-bin/test_aml_commands: test/test_aml_commands.c \
-                       src/command/aml_commands.c \
-                       src/command/command.c src/command/registry.c
->mkdir -p bin
->$(CC) $(CPPFLAGS) $(CFLAGS) $^ -o $@
+# Lance chaque test l'un après l'autre ; s'arrête au premier échec.
+test: $(TESTS)
+	@for t in $(TESTS); do \
+		echo; echo "==== $$t"; \
+		./$$t || exit 1; \
+	done
+	@echo; echo "Tous les tests sont passés."
 
-# ============================================================
-# Exécution des tests
-# ============================================================
 
-test: test-protocol test-state test-config test-command test-aml-commands
+# ----------------------------------------------------------------------------
+#  Règles génériques
+# ----------------------------------------------------------------------------
 
-test-protocol: bin/test_protocol
->./bin/test_protocol
+# src/aml/protocol.c  ->  bin/obj/aml/protocol.o
+$(OBJ)/%.o: src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-test-state: bin/test_state
->./bin/test_state
+# test/test_state.c  ->  bin/obj/test/test_state.o
+$(OBJ)/test/%.o: test/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-test-config: bin/test_config
->./bin/test_config
+# Les programmes et tests finaux doivent avoir leur dossier bin/.
+$(PROGRAMS) $(TESTS): | $(BIN)
 
-test-command: bin/test_command
->./bin/test_command
-
-# Test d'intégration Bluetooth réel : à lancer volontairement.
-test-aml: bin/test_aml
->./bin/test_aml
-
-test-aml-commands: bin/test_aml_commands
->./bin/test_aml_commands
-
-# ============================================================
-# Nettoyage
-# ============================================================
+$(BIN):
+	mkdir -p $@
 
 clean:
->rm -rf $(OBJDIR)
->rm -f bin/test_protocol bin/test_state bin/test_config \
-      bin/test_command bin/test_aml bin/test_aml_commands \
-      bin/sweetdawn
+	rm -rf $(BIN)
 
-rebuild: clean all
+rebuild: clean
+	$(MAKE) all
+
+# Dépendances vers les headers, générées par -MMD (fichiers .d).
+-include $(shell find $(OBJ) -name '*.d' 2>/dev/null)

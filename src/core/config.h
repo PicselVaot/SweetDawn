@@ -2,7 +2,7 @@
 #define CONFIG_H
 
 /*
- * config.h — Gestion de la configuration des appareils AML005
+ * core/config.h — Configuration des appareils AML005 (config/aml.json)
  *
  * Ce module charge les appareils depuis un fichier JSON.
  * Il ne gère ni les connexions Bluetooth ni le protocole AML005.
@@ -10,9 +10,9 @@
 
 #include <stddef.h>
 
-#define CONFIG_MAX_AMLS 32
-#define CONFIG_NAME_MAX 64
-#define CONFIG_MAC_LENGTH 18
+#define CONFIG_MAX_AMLS 32      /* appareils au plus dans le fichier      */
+#define CONFIG_NAME_MAX 64      /* longueur d'un nom, '\0' compris        */
+#define CONFIG_MAC_LENGTH 18    /* "AA:BB:CC:DD:EE:FF" + '\0'             */
 
 /*
  * Configuration d'un appareil AML005.

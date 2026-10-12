@@ -1,32 +1,60 @@
 /*
- * main.c — Point d'entrée de SweetDawn
+ * app/cli.c — Programme bin/sweetdawn : diagnostic ponctuel
  *
  * Charge la configuration, sélectionne un AML005, établit la
  * connexion Bluetooth, récupère son statut et ses paramètres,
  * puis ferme proprement la connexion.
+ *
+ * Chaque trame envoyée (TX) et reçue (RX) est affichée en hexadécimal :
+ * c'est l'outil à lancer pour vérifier le matériel ou étudier une
+ * nouvelle commande du protocole.
+ *
+ * Ce programme parle directement à l'AML, sans passer par le service.
+ * Ne pas le lancer pendant que bin/sweetdawn-service tourne : l'AML
+ * n'accepte qu'une liaison à la fois.
+ *
+ * Usage : ./bin/sweetdawn [nom_appareil]
  */
 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "aml.h"
-#include "config.h"
-#include "protocol.h"
-#include "state.h"
+#include "aml/transport.h"
+#include "core/config.h"
+#include "aml/protocol.h"
+#include "core/state.h"
 
 #define CONFIG_PATH "config/aml.json"
 #define ERROR_MESSAGE_SIZE 256
 #define REQUEST_BUFFER_SIZE AML_PROTOCOL_MAX_FRAME_SIZE
 #define RESPONSE_BUFFER_SIZE AML_PROTOCOL_MAX_FRAME_SIZE
 
-#define REQUEST_STATUS_CODE 0x00
-#define REQUEST_STATUS_ARGUMENT 0x16
-#define RESPONSE_STATUS_CODE 0xF0
+/* Délai maximal d'attente d'une réponse. */
+#define RESPONSE_TIMEOUT_MS 5000
 
-#define REQUEST_SETTINGS_CODE 0x12
-#define RESPONSE_SETTINGS_CODE 0xE2
+/* Affiche une trame en hexadécimal, précédée d'une étiquette. */
+static void afficher_trame(
+    const char *label,
+    const uint8_t *data,
+    size_t length
+)
+{
+    printf("%s (%zu octets) :", label, length);
 
+    for (size_t i = 0; i < length; i++)
+        printf(" %02X", data[i]);
+
+    printf("\n");
+}
+
+/*
+ * Construit une requête, l'envoie, puis attend une trame en retour.
+ *
+ * Contrairement au service, on ne vérifie pas ici que la trame reçue
+ * est bien la réponse attendue : c'est fait par l'appelant, qui affiche
+ * une erreur explicite si ce n'est pas le cas.
+ */
 static int envoyer_requete(
     AmlConnection *connection,
     uint8_t request_code,
@@ -52,11 +80,7 @@ static int envoyer_requete(
         return -1;
     }
 
-    printf("TX (%zu octets) :", request_length);
-    for (size_t i = 0; i < request_length; i++) {
-        printf(" %02X", request[i]);
-    }
-    printf("\n");
+    afficher_trame("TX", request, request_length);
 
     if (aml_send(connection, request, request_length) != 0) {
         fprintf(stderr, "Erreur : échec de l'envoi de la requête 0x%02X.\n",
@@ -69,24 +93,21 @@ static int envoyer_requete(
             response,
             response_capacity,
             response_length,
-            5000) != 0) {
+            RESPONSE_TIMEOUT_MS) != 0) {
         fprintf(stderr, "Erreur : aucune réponse à la requête 0x%02X.\n",
                 request_code);
         return -1;
     }
 
-    printf("RX (%zu octets) :", *response_length);
-    for (size_t i = 0; i < *response_length; i++) {
-        printf(" %02X", response[i]);
-    }
-    printf("\n");
+    afficher_trame("RX", response, *response_length);
 
     return 0;
 }
 
+/* Demande le statut et affiche l'octet d'autorisation reçu. */
 static int demander_statut(AmlConnection *connection)
 {
-    const uint8_t argument = REQUEST_STATUS_ARGUMENT;
+    const uint8_t argument = AML_REQUEST_STATUS_ARG;
     uint8_t response[RESPONSE_BUFFER_SIZE];
     size_t response_length = 0;
 
@@ -94,7 +115,7 @@ static int demander_statut(AmlConnection *connection)
 
     if (envoyer_requete(
             connection,
-            REQUEST_STATUS_CODE,
+            AML_REQUEST_STATUS,
             &argument,
             sizeof(argument),
             response,
@@ -103,25 +124,23 @@ static int demander_statut(AmlConnection *connection)
         return -1;
     }
 
-    /*
-     * Les positions des champs sont celles observées dans la réponse
-     * réelle validée lors du test de communication.
-     */
-    if (response_length < 9 ||
-        response[0] != AML_FRAME_START_1 ||
-        response[1] != AML_FRAME_START_2 ||
-        response[7] != RESPONSE_STATUS_CODE) {
+    /* Format de la réponse : voir aml/protocol.h. */
+    if (response_length < AML_FRAME_DATA_OFFSET + 1 ||
+        response[AML_FRAME_CODE_OFFSET] != AML_RESPONSE_STATUS) {
         fprintf(stderr, "Erreur : réponse de statut AML005 inattendue.\n");
         return -1;
     }
 
+    uint8_t autorisation = response[AML_FRAME_DATA_OFFSET];
+
     printf("Autorisation AML : %u (0x%02X)\n",
-           response[8],
-           response[8]);
+           autorisation,
+           autorisation);
 
     return 0;
 }
 
+/* Demande les paramètres généraux et les enregistre dans state. */
 static int demander_parametres(
     AmlConnection *connection,
     AmlState *state
@@ -134,7 +153,7 @@ static int demander_parametres(
 
     if (envoyer_requete(
             connection,
-            REQUEST_SETTINGS_CODE,
+            AML_REQUEST_SETTINGS,
             NULL,
             0,
             response,
@@ -144,25 +163,18 @@ static int demander_parametres(
     }
 
     /*
-     * La réponse de paramètres validée contient :
-     * FE EF 0C 0D AB BB 08 E2 display date time feedback fade ...
+     * La réponse de paramètres contient :
+     * FE EF 0C 0D AB BB 08 E2 display date time feedback fade XX 55 0D 0A
      */
-    if (response_length < 14 ||
-        response[0] != AML_FRAME_START_1 ||
-        response[1] != AML_FRAME_START_2 ||
-        response[7] != RESPONSE_SETTINGS_CODE) {
+    if (response_length < AML_FRAME_DATA_OFFSET + 6 ||
+        response[AML_FRAME_CODE_OFFSET] != AML_RESPONSE_SETTINGS) {
         fprintf(stderr, "Erreur : réponse de paramètres AML005 inattendue.\n");
         return -1;
     }
 
-    state_update_settings(
-        state,
-        response[8],
-        response[9],
-        response[10],
-        response[11],
-        response[12]
-    );
+    const uint8_t *data = &response[AML_FRAME_DATA_OFFSET];
+
+    state_update_settings(state, data[0], data[1], data[2], data[3], data[4]);
 
     return 0;
 }

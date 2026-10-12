@@ -1,21 +1,27 @@
 /*
- * test_config.c — Tests du module de configuration SweetDawn
+ * test/test_config.c — Tests de la configuration (core/config)
  *
  * Ces tests vérifient le chargement du JSON et la sélection
  * d'un appareil AML005.
+ *
+ * Ils lisent config/aml.example.json : la configuration locale
+ * (config/aml.json, non versionnée) n'est pas nécessaire.
  */
 
 #include <stdio.h>
 #include <string.h>
 
-#include "config.h"
+#include "core/config.h"
+
+/* Exemple versionné : la configuration locale n'est pas requise. */
+#define TEST_CONFIG_PATH "config/aml.example.json"
 
 static int test_chargement(void)
 {
     AppConfig config;
     char error[256];
 
-    if (config_load("config/aml.json", &config,
+    if (config_load(TEST_CONFIG_PATH, &config,
                     error, sizeof(error)) < 0) {
         fprintf(stderr, "ÉCHEC : chargement : %s\n", error);
         return 1;
@@ -37,7 +43,7 @@ static int test_valeurs(void)
     AppConfig config;
     char error[256];
 
-    if (config_load("config/aml.json", &config,
+    if (config_load(TEST_CONFIG_PATH, &config,
                     error, sizeof(error)) < 0) {
         fprintf(stderr, "ÉCHEC : chargement : %s\n", error);
         return 1;
@@ -67,7 +73,7 @@ static int test_selection_par_nom(void)
     AppConfig config;
     char error[256];
 
-    if (config_load("config/aml.json", &config,
+    if (config_load(TEST_CONFIG_PATH, &config,
                     error, sizeof(error)) < 0) {
         fprintf(stderr, "ÉCHEC : chargement : %s\n", error);
         return 1;
@@ -89,7 +95,7 @@ static int test_nom_inconnu(void)
     AppConfig config;
     char error[256];
 
-    if (config_load("config/aml.json", &config,
+    if (config_load(TEST_CONFIG_PATH, &config,
                     error, sizeof(error)) < 0) {
         fprintf(stderr, "ÉCHEC : chargement : %s\n", error);
         return 1;

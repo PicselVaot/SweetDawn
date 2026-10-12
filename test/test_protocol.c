@@ -1,5 +1,5 @@
 /*
- * test_protocol.c — Tests unitaires du protocole AML005
+ * test/test_protocol.c — Tests unitaires du protocole AML005 (aml/protocol)
  *
  * Ces tests vérifient :
  *   1. La construction de la requête de statut.
@@ -8,22 +8,16 @@
  *   4. L'extraction de plusieurs trames reçues ensemble.
  *   5. La recherche d'une trame après des octets parasites.
  *
- * Compilation depuis la racine du projet :
+ * Lancement depuis la racine du projet :
  *
- * gcc -Wall -Wextra -Wpedantic -std=c11 \
- *     -Isrc src/protocol.c test/test_protocol.c \
- *     -o bin/test_protocol
- *
- * Exécution :
- *
- * ./bin/test_protocol
+ *   make bin/test_protocol && ./bin/test_protocol
  */
 
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "protocol.h"
+#include "aml/protocol.h"
 
 /*
  * Affiche une trame sous forme hexadécimale.

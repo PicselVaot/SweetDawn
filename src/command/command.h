@@ -1,16 +1,39 @@
 #ifndef SWEETDAWN_COMMAND_H
 #define SWEETDAWN_COMMAND_H
 
+/*
+ * command/command.h — Briques de l'arbre des commandes
+ *
+ * Une commande est un nœud d'arbre :
+ *   - un nom (et éventuellement des alias) ;
+ *   - des enfants (ex. « Light » contient « Brightness ») ;
+ *   - une description du type de valeur acceptée et de ses limites
+ *     (ex. un entier entre 0 et 100), utilisée pour valider ce que
+ *     l'utilisateur saisit avant de l'envoyer à l'AML ;
+ *   - éventuellement une fonction à exécuter (handler).
+ *
+ * Ce module ne connaît pas l'AML : l'arbre réel est construit par
+ * command/aml_commands.c. L'objectif est que CLI, GUI et MQTT
+ * partagent la même liste de commandes et les mêmes validations.
+ *
+ * Mémoire : les objets Command ne sont jamais alloués par ce module ;
+ * l'appelant les fournit. Seuls les tableaux internes (alias, enfants)
+ * sont alloués, et libérés par command_clear(). Les chaînes (noms,
+ * descriptions, alias, choix) sont empruntées, jamais copiées : elles
+ * doivent vivre aussi longtemps que la commande (en pratique, des
+ * littéraux).
+ */
+
 #include <stdbool.h>
 #include <stddef.h>
 
 /* Types de valeurs acceptées par une commande. */
 typedef enum {
-    COMMAND_VALUE_NONE,
-    COMMAND_VALUE_BOOL,
-    COMMAND_VALUE_INTEGER,
-    COMMAND_VALUE_NUMBER,
-    COMMAND_VALUE_STRING
+    COMMAND_VALUE_NONE,     /* aucune valeur (action ou groupe)   */
+    COMMAND_VALUE_BOOL,     /* "true" ou "false"                  */
+    COMMAND_VALUE_INTEGER,  /* entier en base 10                  */
+    COMMAND_VALUE_NUMBER,   /* nombre décimal (ex. 101.5)         */
+    COMMAND_VALUE_STRING    /* texte, éventuellement dans choices */
 } CommandValueType;
 
 /*
@@ -54,14 +77,17 @@ typedef struct Command {
     const char *name;
     const char *description;
 
+    /* Autres noms acceptés (tableau dynamique). */
     const char **aliases;
     size_t alias_count;
     size_t alias_capacity;
 
+    /* Sous-commandes (tableau dynamique de pointeurs). */
     struct Command **children;
     size_t child_count;
     size_t child_capacity;
 
+    /* Nœud parent, NULL pour la racine ou une commande isolée. */
     struct Command *parent;
 
     CommandValueSpec value_spec;
@@ -72,7 +98,11 @@ typedef struct Command {
     void *state;
 } Command;
 
-/* Initialise une commande. */
+/*
+ * Initialise une commande sans enfant, sans alias ni valeur.
+ * handler peut être NULL (groupe de commandes, ou commande pas encore
+ * implémentée).
+ */
 int command_init(
     Command *command,
     const char *name,
@@ -80,19 +110,33 @@ int command_init(
     CommandHandler handler
 );
 
-/* Définit le type et les contraintes de la valeur. */
+/*
+ * Définit le type et les contraintes de la valeur.
+ *
+ * Refuse les combinaisons incohérentes : limites sur autre chose qu'un
+ * nombre, minimum > maximum, liste de choix sur autre chose qu'une chaîne.
+ */
 int command_set_value_spec(
     Command *command,
     const CommandValueSpec *spec
 );
 
-/* Ajoute un alias, en rejetant les collisions. */
+/*
+ * Ajoute un alias. Refusé s'il est déjà le nom ou un alias de cette
+ * commande, ou d'une commande sœur (deux enfants d'un même parent ne
+ * peuvent pas répondre au même nom).
+ */
 int command_add_alias(
     Command *command,
     const char *alias
 );
 
-/* Ajoute une sous-commande. */
+/*
+ * Ajoute child sous parent.
+ *
+ * Refusé si child a déjà un parent, si cela créerait un cycle, ou si
+ * un nom ou alias de child est déjà utilisé par un enfant de parent.
+ */
 int command_add_child(
     Command *parent,
     Command *child

@@ -1,13 +1,34 @@
-#ifndef PROTOCOL_H
-#define PROTOCOL_H
+#ifndef AML_PROTOCOL_H
+#define AML_PROTOCOL_H
 
 /*
- * protocol.h — Interface du protocole de communication AML005
+ * aml/protocol.h — Format des trames échangées avec l'AML005
  *
  * Ce module permet :
  *   - de construire les trames de requête ;
  *   - de recevoir un flux d'octets ;
  *   - d'en extraire les trames complètes.
+ *
+ * Il ne fait aucune entrée/sortie : le Bluetooth est géré par
+ * aml/transport.c. On peut donc le tester sans matériel.
+ *
+ * Anatomie d'une trame (valeurs observées sur le matériel réel) :
+ *
+ *   octet :  0  1  2  3  4  5  6  7  8 ...       n-3 n-2 n-1
+ *           FE EF TT LL AB KK IL CC [données] XX  55  0D  0A
+ *
+ *   FE EF : début de trame
+ *   TT    : 0A pour une requête, 0C pour une réponse
+ *   LL    : longueur totale de la trame moins 4
+ *   AB KK : AB AA pour une requête, AB BB pour une réponse
+ *   IL    : longueur interne (code + données + checksum + 55)
+ *   CC    : code de la commande (ou de la réponse)
+ *   XX    : checksum, XOR des octets de IL jusqu'à la dernière donnée
+ *   55    : marqueur de fin interne
+ *   0D 0A : fin de trame (CR LF)
+ *
+ * Exemple, demande de statut :  FE EF 0A 09 AB AA 04 00 16 12 55 0D 0A
+ *          et sa réponse     :  FE EF 0C 09 AB BB 04 F0 16 E2 55 0D 0A
  */
 
 #include <stddef.h>
@@ -19,6 +40,39 @@
 #define AML_FRAME_END      0x55
 #define AML_FRAME_CR       0x0D
 #define AML_FRAME_LF       0x0A
+
+/* Octet 2 : sens de la trame. */
+#define AML_FRAME_TYPE_REQUEST   0x0A
+#define AML_FRAME_TYPE_RESPONSE  0x0C
+
+/* Octets 4 et 5 : en-tête, AB AA (requête) ou AB BB (réponse). */
+#define AML_FRAME_HEADER          0xAB
+#define AML_FRAME_HEADER_REQUEST  0xAA
+#define AML_FRAME_HEADER_RESPONSE 0xBB
+
+/* Position du code de commande, puis des données, dans une trame. */
+#define AML_FRAME_CODE_OFFSET  7
+#define AML_FRAME_DATA_OFFSET  8
+
+/*
+ * Commandes connues.
+ *
+ * Chaque requête reçoit une réponse portant un code différent :
+ * c'est ce code qui permet de reconnaître la bonne réponse.
+ *
+ * Statut : la requête porte un argument (0x16). La réponse contient
+ * un octet d'autorisation : 0x16 (22) signifie que le contrôle de
+ * l'AML est accordé.
+ *
+ * Paramètres : la réponse contient cinq octets, dans l'ordre
+ * display, date, time, feedback, fade (voir core/state.h).
+ */
+#define AML_REQUEST_STATUS        0x00
+#define AML_REQUEST_STATUS_ARG    0x16
+#define AML_RESPONSE_STATUS       0xF0
+
+#define AML_REQUEST_SETTINGS      0x12
+#define AML_RESPONSE_SETTINGS     0xE2
 
 /*
  * Taille maximale d'une trame :
@@ -110,4 +164,4 @@ int protocol_parser_next(
     size_t *output_length
 );
 
-#endif /* PROTOCOL_H */
+#endif /* AML_PROTOCOL_H */

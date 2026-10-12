@@ -1,10 +1,28 @@
 #ifndef AML_COMMANDS_H
 #define AML_COMMANDS_H
 
-#include "registry.h"
+/*
+ * command/aml_commands.h — Arbre complet des commandes de l'AML005
+ *
+ * Décrit tout ce que l'appareil sait faire, groupé par fonction :
+ *
+ *   Settings      luminosité et format d'affichage, heure, son, fondu
+ *   Alarm         Alarm 1 et Alarm 2 : heure, jours, sonnerie, lever de soleil
+ *   Light         éclairage principal, coucher de soleil
+ *   Mood          éclairage d'ambiance : couleur, scènes, minuteur
+ *   Radio         FM : fréquence, canaux, volume, arrêt programmé
+ *   Media Player  utilisation comme haut-parleur
+ *
+ * État actuel : l'arbre décrit les commandes et valide les valeurs,
+ * mais aucune commande n'a encore de handler. Les relier aux trames
+ * du protocole est l'étape 4 du TODO.
+ */
+
+#include "command/registry.h"
 
 #include <stddef.h>
 
+/* Nombre total de commandes que l'arbre peut contenir (marge incluse). */
 #define AML_COMMAND_CAPACITY 64
 
 /*
