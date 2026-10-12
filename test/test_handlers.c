@@ -364,14 +364,14 @@ static void test_horloge(void)
 }
 
 /* Événements diffusés, capturés à la place du serveur IPC. */
-static char diffuses[8][256];
+static char diffuses[64][256];
 static int nb_diffuses = 0;
 
 static void capturer(void *context, struct json_object *event)
 {
     (void)context;
 
-    if (nb_diffuses < 8) {
+    if (nb_diffuses < 64) {
         snprintf(diffuses[nb_diffuses++], sizeof(diffuses[0]), "%s",
                  json_object_to_json_string_ext(event, JSON_C_TO_STRING_PLAIN));
     }
@@ -470,6 +470,43 @@ static void test_evenements(void)
     handlers_tick(&app);
     CHECK(dernier_contient("\"state\":\"idle\""),
           "pas resonné après le snooze : c'était un arrêt, idle");
+
+    /* Les deux alarmes se chevauchent : l'alarme 1 sonne, le lever de
+     * soleil de l'alarme 2 commence. */
+    fake_push_event(0xC7, (const uint8_t[]){1}, 1);
+    fake_push_event(0xC6, (const uint8_t[]){2}, 1);
+    sweetdawn_tick(&app);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"state\":\"ringing\",\"alarm\":1") &&
+          dernier_contient("\"1\":\"ringing\",\"2\":\"sunrise\""),
+          "chevauchement : alarme 1 sonne, alarme 2 en lever de soleil");
+
+    /* On tape : l'alarme 1 ne sonne plus (snooze présumé, durée relue),
+     * le lever de soleil de l'alarme 2 continue. */
+    fake_now += 10000;
+    fake_push_response(0xC5, (const uint8_t[]){2, 0}, 2);
+    fake_push_response(0xF3, (const uint8_t[]){0x81, 1, 0, 7, 62, 1, 7, 3, 1, 20, 80}, 11);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"state\":\"snoozed\",\"alarm\":1") &&
+          dernier_contient("\"1\":\"snoozed\",\"2\":\"sunrise\""),
+          "alarme 1 en snooze, alarme 2 toujours en lever de soleil");
+
+    /* L'alarme 2 sonne à son tour : elle devient l'alarme principale. */
+    fake_push_event(0xC7, (const uint8_t[]){2}, 1);
+    sweetdawn_tick(&app);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"state\":\"ringing\",\"alarm\":2") &&
+          dernier_contient("\"1\":\"snoozed\",\"2\":\"ringing\""),
+          "alarme 2 sonne pendant le snooze de l'alarme 1");
+
+    /* Arrêt par SweetDawn : les deux repassent au repos. */
+    fake_push_response(0xC9, (const uint8_t[]){1}, 1);
+    requete("Alarm/Stop", "[]");
+    fake_push_response(0xC5, (const uint8_t[]){0, 0}, 2);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"state\":\"idle\"") &&
+          dernier_contient("\"1\":\"idle\",\"2\":\"idle\""),
+          "après Alarm/Stop : les deux alarmes au repos");
 
     /* Fin du minuteur radio. */
     fake_push_event(0xED, NULL, 0);

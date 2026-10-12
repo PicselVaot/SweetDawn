@@ -898,7 +898,8 @@ static int ecrire_haut_parleur(const Command *command, int argc,
  * au milieu d'une requête : on se contente de le noter. handlers_tick()
  * le traite ensuite (avec relectures si besoin), puis le diffuse :
  *
- *   {"type":"event","event":"alarm_state","data":{"state":"ringing","alarm":2}}
+ *   {"type":"event","event":"alarm_state",
+ *    "data":{"state":"ringing","alarm":2,"alarms":{"1":"idle","2":"ringing"}}}
  *   {"type":"event","event":"light_changed","data":{"light":{...},"mood":{...}}}
  *   {"type":"event","event":"timer_ended","data":{"timer":"radio"}}
  *
@@ -907,6 +908,8 @@ static int ecrire_haut_parleur(const Command *command, int argc,
  * aux boutons. Tant qu'une alarme est en cours, on relit donc son état
  * (code 25) toutes les ALARM_WATCH_MS pour suivre :
  * idle -> sunrise -> ringing -> snoozed -> ringing -> ... -> idle.
+ * Les deux alarmes sont suivies séparément : elles peuvent se chevaucher
+ * (l'une sonne pendant le lever de soleil de l'autre).
  *
  * Snooze ou arrêt ? Quand la sonnerie cesse, l'état relu ne permet pas
  * toujours de les distinguer (constaté sur le matériel : « rien en
@@ -935,22 +938,27 @@ typedef enum {
 /* Noms diffusés aux clients, dans l'ordre de EtatReveil. */
 static const char *const NOMS_REVEIL[] = { "idle", "sunrise", "ringing", "snoozed" };
 
+/* Suivi d'une alarme. */
+typedef struct {
+    EtatReveil etat;
+    bool a_sonne;                /* a sonné depuis le dernier repos :  */
+                                 /* distingue un snooze d'un lever     */
+    int64_t fin_snooze_ms;       /* au-delà, un snooze sans resonner   */
+                                 /* était en fait un arrêt             */
+} SuiviAlarme;
+
 static struct {
     /* Messages notés par handlers_on_event, pas encore traités. */
     struct { uint8_t code; uint8_t value; } file[EVENT_QUEUE_SIZE];
     size_t taille;
     bool eclairage_change;       /* au moins un CA reçu */
 
-    /* Réveil. */
-    EtatReveil etat;
-    int alarme;                  /* alarme concernée, 0 si aucune        */
-    bool a_sonne;                /* a sonné depuis le dernier repos :    */
-                                 /* distingue un snooze d'un lever       */
-    bool surveiller;             /* relire l'état régulièrement          */
+    /* Réveil : un suivi par alarme (les deux peuvent se chevaucher). */
+    SuiviAlarme alarmes[2];      /* [0] : alarme 1, [1] : alarme 2     */
+    bool reveil_change;          /* à diffuser en fin de traitement    */
+    bool surveiller;             /* relire l'état régulièrement        */
     int64_t prochaine_lecture_ms;
-    int64_t fin_snooze_ms;       /* au-delà, un snooze sans resonner     */
-                                 /* était en fait un arrêt               */
-    bool arret_demande;          /* Alarm/Stop envoyé par SweetDawn      */
+    bool arret_demande;          /* Alarm/Stop envoyé par SweetDawn    */
     unsigned connexions;         /* pour relire l'état après reconnexion */
 
     /* Diffusion aux clients. */
@@ -1000,28 +1008,65 @@ static void diffuser(const char *name, struct json_object *data)
     json_object_put(event);
 }
 
-/* {"state": "ringing", "alarm": 2}, alarm vaut null au repos. */
+/* Priorité pour le résumé : sonne > snooze > lever de soleil > repos. */
+static int priorite(EtatReveil etat)
+{
+    static const int PRIORITE[] = { 0, 1, 3, 2 };   /* ordre de EtatReveil */
+    return PRIORITE[etat];
+}
+
+/*
+ * {"state": "ringing", "alarm": 1, "alarms": {"1": "ringing", "2": "sunrise"}}
+ *
+ * state / alarm : l'alarme la plus avancée (alarm vaut null au repos) ;
+ * alarms : l'état de chacune.
+ */
 static struct json_object *reveil_json(void)
 {
     struct json_object *object = json_object_new_object();
+    struct json_object *alarms = json_object_new_object();
+    int principale = 0;
 
-    json_object_object_add(object, "state",
-                           json_object_new_string(NOMS_REVEIL[evenements.etat]));
-    json_object_object_add(object, "alarm",
-                           evenements.alarme > 0
-                           ? json_object_new_int(evenements.alarme)
+    for (int n = 1; n <= 2; n++) {
+        EtatReveil etat = evenements.alarmes[n - 1].etat;
+        char key[2] = { (char)('0' + n), '\0' };
+
+        json_object_object_add(alarms, key,
+                               json_object_new_string(NOMS_REVEIL[etat]));
+
+        if (etat != REVEIL_REPOS &&
+            (principale == 0 ||
+             priorite(etat) > priorite(evenements.alarmes[principale - 1].etat)))
+            principale = n;
+    }
+
+    json_object_object_add(object, "state", json_object_new_string(
+        NOMS_REVEIL[principale ? evenements.alarmes[principale - 1].etat
+                               : REVEIL_REPOS]));
+    json_object_object_add(object, "alarm", principale
+                           ? json_object_new_int(principale)
                            : json_object_new_null());
+    json_object_object_add(object, "alarms", alarms);
     return object;
 }
 
-static void changer_reveil(EtatReveil etat, int alarme)
+/* Change l'état d'une alarme (1 ou 2) ; la diffusion est groupée. */
+static void changer_alarme(int numero, EtatReveil etat)
 {
-    if (etat == evenements.etat && alarme == evenements.alarme)
+    if (numero < 1 || numero > 2 || evenements.alarmes[numero - 1].etat == etat)
         return;
 
-    evenements.etat = etat;
-    evenements.alarme = alarme;
-    diffuser("alarm_state", reveil_json());
+    evenements.alarmes[numero - 1].etat = etat;
+    evenements.reveil_change = true;
+}
+
+/* Diffuse alarm_state si au moins une alarme a changé. */
+static void diffuser_reveil(void)
+{
+    if (evenements.reveil_change) {
+        evenements.reveil_change = false;
+        diffuser("alarm_state", reveil_json());
+    }
 }
 
 /* Relire l'état du réveil au prochain tour (après un arrêt, une reconnexion...). */
@@ -1038,26 +1083,32 @@ static void noter_arret_demande(void)
 }
 
 /*
- * La sonnerie vient de cesser sans arrêt demandé : snooze présumé, pour
- * la durée de snooze de l'alarme (relue) plus une marge.
+ * La sonnerie de l'alarme numero vient de cesser sans arrêt demandé :
+ * snooze présumé, pour sa durée de snooze (relue) plus une marge.
  */
-static void presumer_snooze(SweetDawn *app, int64_t now)
+static void presumer_snooze(SweetDawn *app, int numero, int64_t now)
 {
     ControlAlarm alarm;
     int minutes = 30;   /* le plus long, si la durée n'est pas lisible */
 
-    if (control_alarm_query(app, evenements.alarme, &alarm) == 0 &&
+    if (control_alarm_query(app, numero, &alarm) == 0 &&
         alarm.snooze < sizeof(SNOOZE_MINUTES) / sizeof(SNOOZE_MINUTES[0]))
         minutes = SNOOZE_MINUTES[alarm.snooze];
 
-    evenements.fin_snooze_ms = now + minutes * 60000LL + SNOOZE_MARGIN_MS;
-    changer_reveil(REVEIL_SNOOZE, evenements.alarme);
+    evenements.alarmes[numero - 1].fin_snooze_ms =
+        now + minutes * 60000LL + SNOOZE_MARGIN_MS;
+    changer_alarme(numero, REVEIL_SNOOZE);
 }
 
-/* Tant qu'une alarme est en cours, relit son état pour suivre ses étapes. */
+/*
+ * Tant qu'une alarme est en cours, relit l'état (code 25 : numéro de
+ * l'alarme en lever de soleil, numéro de celle qui sonne) et en déduit
+ * celui de chaque alarme.
+ */
 static void suivre_reveil(SweetDawn *app, int64_t now)
 {
     uint8_t lever, sonne;
+    bool en_cours = false;
 
     if (!evenements.surveiller || now < evenements.prochaine_lecture_ms)
         return;
@@ -1067,24 +1118,37 @@ static void suivre_reveil(SweetDawn *app, int64_t now)
     if (control_alarm_status(app, &lever, &sonne) != 0)
         return;
 
-    if (sonne != 0) {
-        evenements.a_sonne = true;
-        evenements.fin_snooze_ms = 0;
-        changer_reveil(REVEIL_SONNE, sonne);
-    } else if (lever != 0 && !evenements.arret_demande) {
-        changer_reveil(evenements.a_sonne ? REVEIL_SNOOZE : REVEIL_LEVER, lever);
-    } else if (evenements.etat == REVEIL_SONNE && !evenements.arret_demande) {
-        presumer_snooze(app, now);
-    } else if (evenements.etat == REVEIL_SNOOZE && !evenements.arret_demande &&
-               now < evenements.fin_snooze_ms) {
-        /* Snooze présumé en cours : attendre qu'elle resonne ou non. */
-    } else {
-        evenements.a_sonne = false;
-        evenements.arret_demande = false;
-        evenements.fin_snooze_ms = 0;
-        evenements.surveiller = false;
-        changer_reveil(REVEIL_REPOS, 0);
+    for (int n = 1; n <= 2; n++) {
+        SuiviAlarme *a = &evenements.alarmes[n - 1];
+
+        if (sonne == n) {
+            a->a_sonne = true;
+            a->fin_snooze_ms = 0;
+            changer_alarme(n, REVEIL_SONNE);
+        } else if (lever == n && !evenements.arret_demande) {
+            changer_alarme(n, a->a_sonne ? REVEIL_SNOOZE : REVEIL_LEVER);
+        } else if (a->etat == REVEIL_SONNE && !evenements.arret_demande) {
+            presumer_snooze(app, n, now);
+        } else if (a->etat == REVEIL_SNOOZE && !evenements.arret_demande &&
+                   now < a->fin_snooze_ms) {
+            /* Snooze présumé en cours : attendre qu'elle resonne ou non. */
+        } else {
+            a->a_sonne = false;
+            a->fin_snooze_ms = 0;
+            changer_alarme(n, REVEIL_REPOS);
+        }
+
+        if (a->etat != REVEIL_REPOS)
+            en_cours = true;
     }
+
+    /* Plus rien en cours : arrêter de relire. */
+    if (!en_cours) {
+        evenements.surveiller = false;
+        evenements.arret_demande = false;
+    }
+
+    diffuser_reveil();
 }
 
 /* Relit Light et Mood, puis diffuse light_changed. */
@@ -1115,19 +1179,23 @@ static void traiter_evenements(SweetDawn *app, int64_t now)
 
         switch (evenements.file[i].code) {
         case AML_EVT_SUNRISE_START:
-            evenements.a_sonne = false;
+            if (value >= 1 && value <= 2) {
+                evenements.alarmes[value - 1].a_sonne = false;
+                changer_alarme(value, REVEIL_LEVER);
+            }
             evenements.arret_demande = false;
             evenements.surveiller = true;
             evenements.prochaine_lecture_ms = now + ALARM_WATCH_MS;
-            changer_reveil(REVEIL_LEVER, value);
             break;
         case AML_EVT_ALARM_RING:
-            evenements.a_sonne = true;
+            if (value >= 1 && value <= 2) {
+                evenements.alarmes[value - 1].a_sonne = true;
+                evenements.alarmes[value - 1].fin_snooze_ms = 0;
+                changer_alarme(value, REVEIL_SONNE);
+            }
             evenements.arret_demande = false;
-            evenements.fin_snooze_ms = 0;
             evenements.surveiller = true;
             evenements.prochaine_lecture_ms = now + ALARM_WATCH_MS;
-            changer_reveil(REVEIL_SONNE, value);
             break;
         case AML_EVT_LIGHT_TIMER_END:
             timer = "light";
@@ -1157,6 +1225,7 @@ static void traiter_evenements(SweetDawn *app, int64_t now)
 
     /* Vider la file avant les relectures : elles peuvent en ajouter. */
     evenements.taille = 0;
+    diffuser_reveil();
 
     if (evenements.eclairage_change) {
         evenements.eclairage_change = false;

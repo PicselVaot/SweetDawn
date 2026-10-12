@@ -479,13 +479,20 @@ def build_entities():
                             "options": list(ALARM_STATES.values()),
                             "icon": "mdi:alarm-note"}))
     # Réveil en trois états : off (rien), en cours (lever de soleil, ou
-    # snooze en attendant de resonner), on (il sonne).
+    # snooze en attendant de resonner), on (il sonne). « Réveil » résume
+    # les deux alarmes, qui peuvent se chevaucher ; « Réveil 1 » et
+    # « Réveil 2 » les suivent chacune.
+    phase = {"device_class": "enum", "options": ["off", "en cours", "on"],
+             "icon": "mdi:weather-sunset-up"}
     entities.append(Entity("sensor", "alarm_phase", "Réveil", "status",
                            {"": Channel(get=lambda c: or_none(ALARM_PHASES.get(
                                value_in(c, "status", "alarm_state", "state"))))},
-                           {"device_class": "enum",
-                            "options": ["off", "en cours", "on"],
-                            "icon": "mdi:weather-sunset-up"}))
+                           dict(phase)))
+    for n in ("1", "2"):
+        entities.append(Entity("sensor", f"alarm{n}_phase", f"Réveil {n}", "status",
+                               {"": Channel(get=lambda c, n=n: or_none(ALARM_PHASES.get(
+                                   value_in(c, "status", "alarm_state", "alarms", n))))},
+                               dict(phase)))
     entities.append(Entity("binary_sensor", "alarm_ringing", "Réveil sonne", "status",
                            {"": Channel(get=lambda c: on_off(
                                value_in(c, "status", "alarm_state", "state") == "ringing"
