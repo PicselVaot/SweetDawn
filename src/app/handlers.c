@@ -4,7 +4,9 @@
  * Organisation du fichier :
  *   1. Contexte et erreurs  : ce qu'un handler reçoit et renvoie.
  *   2. Conversions          : texte <-> valeurs, choix <-> index.
- *   3. Handlers             : un groupe de l'arbre après l'autre
+ *   3. Handlers             : un groupe de l'arbre après l'autre ;
+ *                             la section Settings gère aussi l'horloge
+ *                             de l'AML (heure connue, remise à l'heure)
  *                             (Settings, Alarm, Light/Mood, Radio,
  *                             Media Player).
  *   4. Table des handlers   : quel chemin de l'arbre appelle quoi.
@@ -154,6 +156,9 @@ static int lire_couleur(const char *value, uint8_t rgb[3])
 /* Handlers : Settings                                                       */
 /* ------------------------------------------------------------------------- */
 
+/* Définie plus bas, avec la gestion de l'horloge de l'AML. */
+static int envoyer_heure(HandlerContext *ctx, const struct tm *tm);
+
 /*
  * Dans les réglages, feedback et fade sont inversés : 0 = activé.
  * C'est ainsi que l'application d'origine les encode.
@@ -237,10 +242,72 @@ static int ecrire_reglage(const Command *command, int argc,
         struct tm local;
 
         localtime_r(&now, &local);
-        return verifier(ctx, control_sync_time(ctx->app, &local));
+        return envoyer_heure(ctx, &local);
     }
 
     return 0;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Horloge de l'AML                                                          */
+/* ------------------------------------------------------------------------- */
+/*
+ * L'AML ne permet pas de relire son heure. On la connaît quand même :
+ * c'est SweetDawn qui la règle. On retient l'écart avec l'horloge du
+ * système (champs clock_* de SweetDawn) ; l'heure de l'AML est alors
+ * l'heure du système plus cet écart.
+ */
+
+/* Remise à l'heure automatique : une fois par jour, en mode auto. */
+#define CLOCK_RESYNC_MS (24LL * 3600 * 1000)
+
+/* Après un échec, nouvel essai dans 10 minutes. */
+#define CLOCK_RETRY_MS (10LL * 60 * 1000)
+
+/* Retient que l'AML vient d'être réglé sur tm (heure locale). */
+static void noter_heure(SweetDawn *app, const struct tm *tm)
+{
+    struct tm copie = *tm;
+    int64_t offset;
+
+    copie.tm_isdst = -1;
+    offset = (int64_t)(mktime(&copie) - time(NULL));
+
+    /* Mise à l'heure du système : l'écart d'une seconde vient de l'arrondi. */
+    if (offset >= -1 && offset <= 1)
+        offset = 0;
+
+    app->clock_set = true;
+    app->clock_offset_s = offset;
+    app->clock_synced_ms = sweetdawn_now_ms(app);
+}
+
+/*
+ * Heure actuelle de l'AML, si elle est connue : réglée par SweetDawn
+ * depuis son démarrage, et mode auto (en manual, elle a pu être changée
+ * aux boutons de l'AML).
+ */
+static bool horloge_aml(const SweetDawn *app, time_t *aml_now)
+{
+    if (!app->clock_set || !app->state.known || app->state.time != 0)
+        return false;
+
+    *aml_now = time(NULL) + (time_t)app->clock_offset_s;
+    return true;
+}
+
+/* Écrit t (heure locale) au format ISO 8601 avec fuseau : 2026-10-12T07:00:00+02:00 */
+static void format_iso(time_t t, char *buffer, size_t capacity)
+{
+    struct tm local;
+    char zone[8];
+
+    localtime_r(&t, &local);
+    strftime(buffer, capacity, "%Y-%m-%dT%H:%M:%S", &local);
+    strftime(zone, sizeof(zone), "%z", &local);   /* +0200 */
+
+    size_t used = strlen(buffer);
+    snprintf(buffer + used, capacity - used, "%.3s:%.2s", zone, zone + 3);
 }
 
 /*
@@ -266,7 +333,11 @@ static int envoyer_heure(HandlerContext *ctx, const struct tm *tm)
             return -1;
     }
 
-    return verifier(ctx, control_sync_time(ctx->app, tm));
+    if (verifier(ctx, control_sync_time(ctx->app, tm)) != 0)
+        return -1;
+
+    noter_heure(ctx->app, tm);
+    return 0;
 }
 
 /* Settings/Sync time : met l'AML à l'heure du Raspberry Pi. */
@@ -370,7 +441,67 @@ static int numero_alarme(const Command *alarm_group)
     return strcmp(alarm_group->name, "2") == 0 ? 2 : 1;
 }
 
-static struct json_object *alarme_json(const Command *group,
+/*
+ * Délai avant le prochain déclenchement d'une alarme, selon l'horloge
+ * de l'AML. Faux si l'alarme est désactivée ou l'horloge inconnue.
+ *
+ * Jours : bit 0 = dimanche ... bit 6 = samedi, la même convention que
+ * tm_wday. Aucun jour coché : prochaine occurrence de l'heure (à
+ * confirmer sur le matériel).
+ */
+static bool prochaine_alarme(const SweetDawn *app, const ControlAlarm *alarm,
+                             int64_t *delay_s)
+{
+    time_t aml_now;
+    struct tm today;
+
+    if (!alarm->enable || !horloge_aml(app, &aml_now))
+        return false;
+
+    localtime_r(&aml_now, &today);
+
+    /* Aujourd'hui (si l'heure n'est pas passée), puis les 7 jours suivants. */
+    for (int k = 0; k <= 7; k++) {
+        struct tm candidate = today;
+
+        candidate.tm_mday += k;
+        candidate.tm_hour = alarm->hour;
+        candidate.tm_min = alarm->minute;
+        candidate.tm_sec = 0;
+        candidate.tm_isdst = -1;
+
+        time_t t = mktime(&candidate);   /* normalise et calcule tm_wday */
+
+        if (t == (time_t)-1 || t <= aml_now)
+            continue;
+
+        if ((alarm->days & 0x7F) == 0 ||
+            (alarm->days & (1u << candidate.tm_wday)) != 0) {
+            *delay_s = (int64_t)(t - aml_now);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/* Délai lisible : "11 h 05 min", "2 j 3 h 00 min". */
+static void format_delai(int64_t seconds, char *buffer, size_t capacity)
+{
+    long long minutes = (seconds + 59) / 60;
+    long long days = minutes / (24 * 60);
+    long long hours = minutes / 60 % 24;
+
+    minutes %= 60;
+
+    if (days > 0)
+        snprintf(buffer, capacity, "%lld j %lld h %02lld min", days, hours, minutes);
+    else
+        snprintf(buffer, capacity, "%lld h %02lld min", hours, minutes);
+}
+
+static struct json_object *alarme_json(const SweetDawn *app,
+                                       const Command *group,
                                        const ControlAlarm *alarm)
 {
     struct json_object *object = json_object_new_object();
@@ -394,6 +525,26 @@ static struct json_object *alarme_json(const Command *group,
     json_object_object_add(object, "sunrise_brightness",
                            json_object_new_int(alarm->sunrise_brightness));
 
+    /*
+     * Prochain déclenchement, en heure réelle (celle du système) : c'est
+     * le moment où l'horloge de l'AML atteindra l'heure de l'alarme.
+     */
+    int64_t delay_s;
+
+    if (prochaine_alarme(app, alarm, &delay_s)) {
+        char next[40];
+        char in[32];
+
+        format_iso(time(NULL) + (time_t)delay_s, next, sizeof(next));
+        format_delai(delay_s, in, sizeof(in));
+
+        json_object_object_add(object, "next", json_object_new_string(next));
+        json_object_object_add(object, "in_s", json_object_new_int64(delay_s));
+        json_object_object_add(object, "in", json_object_new_string(in));
+    } else {
+        json_object_object_add(object, "next", json_object_new_null());
+    }
+
     return object;
 }
 
@@ -411,7 +562,7 @@ static int lire_alarme(const Command *command, int argc,
     if (verifier(ctx, code) != 0)
         return -1;
 
-    ctx->result = alarme_json(command, &alarm);
+    ctx->result = alarme_json(ctx->app, command, &alarm);
     return 0;
 }
 
@@ -436,7 +587,8 @@ static int lire_alarmes(const Command *command, int argc,
             return -1;
         }
 
-        json_object_object_add(object, name, alarme_json(group, &alarm));
+        json_object_object_add(object, name,
+                               alarme_json(ctx->app, group, &alarm));
     }
 
     ctx->result = object;
@@ -798,6 +950,40 @@ static int lier(CommandRegistry *registry, const char *path,
     return 0;
 }
 
+/*
+ * Remise à l'heure automatique de l'AML, en mode auto uniquement :
+ * à la première occasion après le démarrage, puis une fois par jour.
+ * Garde l'écart choisi avec Settings/Set time (0 par défaut) et
+ * rattrape la dérive de l'horloge de l'AML.
+ */
+void handlers_tick(SweetDawn *app)
+{
+    static int64_t next_attempt_ms = 0;
+    int64_t now_ms;
+
+    if (app == NULL || !sweetdawn_is_connected(app) ||
+        !app->state.known || app->state.time != 0)
+        return;
+
+    now_ms = sweetdawn_now_ms(app);
+
+    if (now_ms < next_attempt_ms ||
+        (app->clock_set && now_ms - app->clock_synced_ms < CLOCK_RESYNC_MS))
+        return;
+
+    time_t target = time(NULL) + (time_t)(app->clock_set ? app->clock_offset_s : 0);
+    struct tm tm;
+
+    localtime_r(&target, &tm);
+
+    if (control_sync_time(app, &tm) == 0) {
+        noter_heure(app, &tm);
+        printf("SweetDawn : horloge de l'AML remise à l'heure.\n");
+    } else {
+        next_attempt_ms = now_ms + CLOCK_RETRY_MS;
+    }
+}
+
 int handlers_attach(SweetDawn *app)
 {
     CommandRegistry *registry;
@@ -871,6 +1057,24 @@ static struct json_object *status_json(SweetDawn *app)
         json_object_object_add(object, "settings",
                                reglages_json(settings, state));
     }
+
+    /* Horloge de l'AML : connue seulement si SweetDawn l'a réglée. */
+    struct json_object *clock = json_object_new_object();
+    time_t aml_now;
+    bool known = horloge_aml(app, &aml_now);
+
+    json_object_object_add(clock, "known", json_object_new_boolean(known));
+
+    if (known) {
+        char text[40];
+
+        format_iso(aml_now, text, sizeof(text));
+        json_object_object_add(clock, "time", json_object_new_string(text));
+        json_object_object_add(clock, "offset_s",
+                               json_object_new_int64(app->clock_offset_s));
+    }
+
+    json_object_object_add(object, "clock", clock);
 
     return object;
 }

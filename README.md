@@ -14,6 +14,7 @@ The project is designed to run as a persistent background service, allowing mult
 - **State management** — Maintain an in-memory representation of the device state.
 - **Configuration** — Load device and application settings from JSON.
 - **Persistent service** — Keep a single Bluetooth connection alive, refresh the device state periodically, and reconnect automatically with backoff.
+- **Clock and next alarm** — Keep the AML005 clock in sync with the Raspberry Pi, and tell when each alarm will ring next (`in 11 h 05 min`).
 - **Local IPC** — Serve multiple clients over a Unix domain socket with newline-delimited JSON.
 - **Command-line client** — `sweetdawn-ctl Light/Enable true`, answered in about 100 ms through the open connection.
 - **systemd integration** — Start the service at boot and restart it on failure.

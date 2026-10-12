@@ -39,10 +39,14 @@
 /* Chemin relatif : le service doit être lancé depuis la racine du projet. */
 #define SERVICE_CONFIG_PATH "config/aml.json"
 
-/* Adapte sweetdawn_tick() à la signature attendue par le serveur IPC. */
+/*
+ * Tâche périodique du service, appelée par la boucle IPC : entretien de
+ * la liaison, puis de l'horloge de l'AML.
+ */
 static void service_tick(void *context)
 {
     sweetdawn_tick(context);
+    handlers_tick(context);
 }
 
 int main(int argc, char **argv)

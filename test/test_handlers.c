@@ -286,6 +286,81 @@ static void test_heure(void)
     CHECK(app.state.time == 0, "le mode mémorisé est maintenant auto");
 }
 
+/* Champ d'un objet JSON imbriqué : objet[key][sub]. */
+static struct json_object *sous_champ(struct json_object *object,
+                                      const char *key, const char *sub)
+{
+    struct json_object *child = NULL;
+    struct json_object *value = NULL;
+
+    json_object_object_get_ex(object, key, &child);
+    json_object_object_get_ex(child, sub, &value);
+    return value;
+}
+
+static void test_horloge(void)
+{
+    printf("\n[10] Horloge de l'AML et prochaine alarme\n");
+    connecter();
+
+    requete("status", "[]");
+    CHECK(!json_object_get_boolean(sous_champ(last_result, "clock", "known")),
+          "au démarrage, l'heure de l'AML est inconnue");
+
+    fake_push_response(0xF1, NULL, 0);
+    handlers_tick(&app);
+    CHECK(fake_sent_count == 1 && code_envoye(0) == 0x01 && app.clock_set &&
+          app.clock_offset_s == 0,
+          "mise à l'heure automatique dès la connexion (écart 0)");
+
+    handlers_tick(&app);
+    CHECK(fake_sent_count == 1, "pas de nouvelle mise à l'heure avant 24 h");
+
+    fake_now += 24LL * 3600 * 1000;
+    fake_push_response(0xF1, NULL, 0);
+    handlers_tick(&app);
+    CHECK(fake_sent_count == 2, "nouvelle mise à l'heure 24 h plus tard");
+
+    /* AML réglé au dimanche 1er mars 2026, 07:45. */
+    fake_push_response(0xF1, NULL, 0);
+    requete("Settings/Set time", "[\"2026-03-01 07:45\"]");
+
+    requete("status", "[]");
+    CHECK(json_object_get_boolean(sous_champ(last_result, "clock", "known")),
+          "après Set time, l'heure de l'AML est connue");
+
+    /* Alarme 2 activée, 08:00, lundi seulement (bit 1). */
+    const uint8_t lundi[] = { 0x87, 1, 0, 8, 0x02, 1, 5, 2, 0, 10, 50 };
+    fake_push_response(0xF3, lundi, sizeof(lundi));
+    requete("Alarm/2", "[]");
+
+    struct json_object *in_s = NULL;
+    json_object_object_get_ex(last_result, "in_s", &in_s);
+    int64_t delay = json_object_get_int64(in_s);
+
+    /* Dimanche 07:45 -> lundi 08:00 = 24 h 15 min = 87300 s. */
+    CHECK(in_s != NULL && delay > 87290 && delay <= 87300,
+          "lundi 08:00 depuis dimanche 07:45 : dans 24 h 15 min");
+    CHECK(strcmp(champ_texte("in"), "1 j 0 h 15 min") == 0,
+          "délai lisible : 1 j 0 h 15 min");
+
+    /* La même, désactivée : pas de prochain déclenchement. */
+    const uint8_t off[] = { 0x87, 0, 0, 8, 0x02, 1, 5, 2, 0, 10, 50 };
+    fake_push_response(0xF3, off, sizeof(off));
+    requete("Alarm/2", "[]");
+
+    struct json_object *next = NULL;
+    json_object_object_get_ex(last_result, "next", &next);
+    CHECK(json_object_object_get_ex(last_result, "next", NULL) && next == NULL,
+          "alarme désactivée : next vaut null");
+
+    /* En mode manual, l'heure a pu être changée aux boutons. */
+    app.state.time = 1;
+    requete("status", "[]");
+    CHECK(!json_object_get_boolean(sous_champ(last_result, "clock", "known")),
+          "en mode manual, l'heure de l'AML redevient inconnue");
+}
+
 static void test_alarme(void)
 {
     printf("\n[5] Alarme (lecture puis réécriture)\n");
@@ -387,6 +462,7 @@ int main(void)
     test_erreurs_aml();
     test_commands();
     test_heure();
+    test_horloge();
 
     if (last_result != NULL)
         json_object_put(last_result);

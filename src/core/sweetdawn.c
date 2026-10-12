@@ -582,6 +582,11 @@ void sweetdawn_tick(SweetDawn *app)
         sweetdawn_refresh(app);
 }
 
+int64_t sweetdawn_now_ms(const SweetDawn *app)
+{
+    return maintenant(app);
+}
+
 bool sweetdawn_is_connected(const SweetDawn *app)
 {
     return app != NULL && app->initialized && app->connected;

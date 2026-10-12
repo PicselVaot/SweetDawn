@@ -200,6 +200,23 @@ def text(value):
     return None if value is None else str(value)
 
 
+def or_none(value):
+    """
+    Valeur d'un capteur pouvant être inconnu : Home Assistant comprend
+    "None" comme « inconnu » (publier rien laisserait l'ancienne valeur).
+    """
+    return "None" if value is None else str(value)
+
+
+def next_alarm(cache):
+    """Prochain déclenchement parmi les deux alarmes (ISO 8601), ou None."""
+    alarms = [value_in(cache, "Alarm", n) or {} for n in ("1", "2")]
+    upcoming = [a for a in alarms if a.get("next") is not None]
+    if not upcoming:
+        return None
+    return min(upcoming, key=lambda a: a["in_s"])["next"]
+
+
 def bool_payload(payload):
     if payload not in ("ON", "OFF"):
         raise ValueError(f"ON ou OFF attendu, reçu {payload!r}")
@@ -398,6 +415,19 @@ def build_entities():
                                f"Alarm/{n}/Sunrise brightness",
                                [a, "sunrise_brightness"], 1, 100,
                                unit_of_measurement="%", **config))
+    # Prochains déclenchements : Home Assistant affiche « dans 11 heures ».
+    # Inconnus tant que SweetDawn n'a pas réglé l'heure de l'AML.
+    timestamp = {"device_class": "timestamp", "icon": "mdi:alarm"}
+    entities.append(Entity("sensor", "next_alarm", "Prochaine alarme", "Alarm",
+                           {"": Channel(get=lambda c: or_none(next_alarm(c)))},
+                           dict(timestamp)))
+    for n in ("1", "2"):
+        entities.append(Entity("sensor", f"alarm{n}_next",
+                               f"Alarme {n} prochain déclenchement", "Alarm",
+                               {"": Channel(get=lambda c, n=n: or_none(
+                                   value_in(c, "Alarm", n, "next")))},
+                               dict(timestamp)))
+
     entities.append(button("alarm_stop", "Arrêter l'alarme", "Alarm/Stop",
                            icon="mdi:alarm-off"))
     entities.append(button("alarm_snooze", "Snooze", "Alarm/Snooze",
@@ -427,6 +457,16 @@ def build_entities():
         "": Channel(set=lambda p, c: [("Settings/Set time", p)]),
     }, {"pattern": r"^(\d{4}-\d{2}-\d{2} )?([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$",
         "min": 5, "max": 19, "icon": "mdi:clock-edit-outline"}))
+
+    # Écart entre l'horloge de l'AML et celle du Raspberry Pi (0 = à
+    # l'heure) ; inconnu en mode manuel ou avant la première mise à l'heure.
+    entities.append(Entity("sensor", "clock_offset", "Écart horloge AML", "status",
+                           {"": Channel(get=lambda c: or_none(
+                               value_in(c, "status", "clock", "offset_s")))},
+                           {"unit_of_measurement": "s",
+                            "device_class": "duration",
+                            "entity_category": "diagnostic",
+                            "icon": "mdi:clock-alert-outline"}))
 
     # --- Haut-parleur Bluetooth ----------------------------------------------
     # L'état n'est pas lisible : Home Assistant le suppose (mode optimiste).

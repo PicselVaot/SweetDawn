@@ -20,7 +20,7 @@ Cette liste vient de l'arbre défini dans [`src/command/aml_commands.c`](../src/
 
 | Commande | Valeur | Effet |
 |---|---|---|
-| `status` | — | État de la liaison et derniers réglages connus, sans interroger l'AML |
+| `status` | — | État de la liaison, derniers réglages connus et heure de l'AML (`clock`), sans interroger l'AML |
 | `commands` | — | Arbre complet des commandes (types, limites, choix) |
 
 ## Settings — réglages de l'appareil
@@ -36,7 +36,7 @@ Cette liste vient de l'arbre défini dans [`src/command/aml_commands.c`](../src/
 | `Settings/Sync time` | — | **Action** : met l'AML à l'heure du Raspberry Pi |
 | `Settings/Set time` | `HH:MM`, `HH:MM:SS` ou `AAAA-MM-JJ HH:MM` | Met l'AML à l'heure choisie ; sans date, garde celle du jour |
 
-L'AML ne permet pas de relire son heure : on peut seulement la régler.
+**Heure de l'AML.** L'AML ne permet pas de relire son heure : on peut seulement la régler. SweetDawn la connaît quand même, puisque c'est lui qui la règle. Il retient l'écart avec l'heure du Raspberry Pi (`status` → `clock`). En mode `auto`, le service remet l'AML à l'heure tout seul : dès la connexion, puis une fois par jour, en gardant l'écart choisi avec `Set time`. En mode `manual`, l'heure a pu être changée aux boutons : elle est alors inconnue, et `next` aussi.
 
 En mode `manual`, l'heure se règle avec les boutons de l'AML, qui ignore alors toute mise à l'heure venue de l'extérieur. `Sync time` et `Set time` repassent donc d'abord en mode `auto`.
 
@@ -47,7 +47,7 @@ En mode `manual`, l'heure se règle avec les boutons de l'AML, qui ignore alors 
 | Commande | Valeur | Effet |
 |---|---|---|
 | `Alarm` | — | **Lecture** des deux alarmes |
-| `Alarm/<n>` | — | **Lecture** : `enable`, `time`, `days`, `snooze`, `tone`, `tone_volume`, `sunrise`, `sunrise_duration`, `sunrise_brightness` |
+| `Alarm/<n>` | — | **Lecture** : `enable`, `time`, `days`, `snooze`, `tone`, `tone_volume`, `sunrise`, `sunrise_duration`, `sunrise_brightness`, et le prochain déclenchement : `next`, `in`, `in_s` |
 | `Alarm/<n>/Enable` | `true`, `false` | Active ou désactive l'alarme |
 | `Alarm/<n>/Time` | `HH:MM` | Heure de l'alarme, ex. `07:30` |
 | `Alarm/<n>/Days` | 0 à 127 | Jours actifs (voir ci-dessous) |
@@ -59,6 +59,8 @@ En mode `manual`, l'heure se règle avec les boutons de l'AML, qui ignore alors 
 | `Alarm/<n>/Sunrise brightness` | 1 à 100 | Luminosité atteinte à la fin du lever de soleil |
 | `Alarm/Stop` | — | **Action** : arrête l'alarme qui sonne |
 | `Alarm/Snooze` | — | **Action** : répète l'alarme qui sonne plus tard |
+
+**Prochain déclenchement** : `next` est la date et l'heure réelles du prochain réveil (`2026-10-13T07:00:00+02:00`), `in` le délai lisible (`11 h 05 min`) et `in_s` ce délai en secondes. `next` vaut `null` si l'alarme est désactivée, ou si l'heure de l'AML n'est pas connue (voir ci-dessous).
 
 **Jours** : additionner les valeurs des jours voulus.
 

@@ -32,6 +32,12 @@
 int handlers_attach(SweetDawn *app);
 
 /*
+ * Tâche périodique : remet l'AML à l'heure si besoin (voir handlers.c).
+ * À appeler à chaque tour de la boucle du service, après sweetdawn_tick().
+ */
+void handlers_tick(SweetDawn *app);
+
+/*
  * Exécute une requête IPC. Signature d'un IpcRequestHandler
  * (ipc/ipc_server.h), avec context = le SweetDawn.
  */

@@ -80,6 +80,23 @@ typedef struct {
     unsigned connect_count;    /* connexions réussies depuis le démarrage */
 
     /*
+     * Horloge de l'AML. Elle ne peut pas être relue : on la connaît
+     * parce que c'est SweetDawn qui l'a réglée.
+     *
+     * clock_set       : l'heure a été envoyée depuis le démarrage ;
+     * clock_offset_s  : heure de l'AML moins heure du système, en
+     *                   secondes (0 après une mise à l'heure du Pi) ;
+     * clock_synced_ms : date du dernier envoi (horloge monotone).
+     *
+     * Elle n'est fiable qu'en mode d'heure « auto » : en « manual »,
+     * l'heure peut avoir été changée aux boutons de l'AML.
+     * Gérée par app/handlers.c.
+     */
+    bool clock_set;
+    int64_t clock_offset_s;
+    int64_t clock_synced_ms;
+
+    /*
      * Source de temps remplaçable pour les tests.
      * NULL : horloge monotone du système.
      */
@@ -173,6 +190,12 @@ int sweetdawn_refresh(SweetDawn *app);
  * Elle ne fait rien d'autre : elle est sans effet si rien n'est dû.
  */
 void sweetdawn_tick(SweetDawn *app);
+
+/*
+ * Heure courante en millisecondes sur l'horloge monotone (ou sur
+ * l'horloge de test). Sert à mesurer des durées, pas à dater.
+ */
+int64_t sweetdawn_now_ms(const SweetDawn *app);
 
 /* Indique si la liaison avec l'AML005 est actuellement ouverte. */
 bool sweetdawn_is_connected(const SweetDawn *app);
