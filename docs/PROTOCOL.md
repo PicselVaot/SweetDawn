@@ -147,7 +147,11 @@ Le 12/10/2026, tous les codes que l'application n'utilise pas, de `00` à `7F`, 
 | `22` | `C2` | comme `30 01` | état de Light |
 | `23` | `C3` | comme `30 02`, mais premier octet `01` | état de Mood |
 
-Aucune autre réponse, et aucun autre changement d'état, entre `00` et `7F`. **Aucune commande ne permet de relire l'heure de l'AML.** Ces codes ont été essayés sans données uniquement : avec des données, certains pourraient se comporter autrement.
+Aucune autre réponse, et aucun autre changement d'état, entre `00` et `7F`.
+
+Les codes inconnus de `00` à `3B` ont ensuite été réessayés avec 1 à 6 octets `00` en paramètre : les réponses sont strictement identiques à celles sans paramètre, et aucun autre code ne répond. `01` sans données (mise à l'heure vide) est seulement acquitté (`F1`, sans données).
+
+**Aucune commande connue ne permet de relire l'heure de l'AML.**
 
 ## Messages spontanés
 
