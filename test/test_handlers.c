@@ -383,6 +383,16 @@ static int dernier_contient(const char *text)
     return nb_diffuses > 0 && strstr(diffuses[nb_diffuses - 1], text) != NULL;
 }
 
+/* L'un des n derniers événements diffusés contient-il ce texte ? */
+static int recent_contient(const char *text, int n)
+{
+    for (int i = nb_diffuses - 1; i >= 0 && i >= nb_diffuses - n; i--) {
+        if (strstr(diffuses[i], text) != NULL)
+            return 1;
+    }
+    return 0;
+}
+
 static void test_evenements(void)
 {
     printf("\n[11] Événements de l'AML\n");
@@ -486,10 +496,15 @@ static void test_evenements(void)
     fake_now += 10000;
     fake_push_response(0xC5, (const uint8_t[]){2, 0}, 2);
     fake_push_response(0xF3, (const uint8_t[]){0x81, 1, 0, 7, 62, 1, 7, 3, 1, 20, 80}, 11);
+    fake_push_response(0xD0, (const uint8_t[]){1, 0, 45, 0, 10}, 5);
     handlers_tick(&app);
-    CHECK(dernier_contient("\"state\":\"snoozed\",\"alarm\":1") &&
-          dernier_contient("\"1\":\"snoozed\",\"2\":\"sunrise\""),
+    CHECK(nb_diffuses >= 2 &&
+          strstr(diffuses[nb_diffuses - 2], "\"state\":\"snoozed\",\"alarm\":1") &&
+          strstr(diffuses[nb_diffuses - 2], "\"1\":\"snoozed\",\"2\":\"sunrise\""),
           "alarme 1 en snooze, alarme 2 toujours en lever de soleil");
+    CHECK(dernier_contient("\"sunrise_progress\"") &&
+          dernier_contient("\"alarm\":2,\"brightness\":45"),
+          "pendant le lever de soleil : luminosité de la lampe relue (45 %)");
 
     /* L'alarme 2 sonne à son tour : elle devient l'alarme principale. */
     fake_push_event(0xC7, (const uint8_t[]){2}, 1);
@@ -504,9 +519,11 @@ static void test_evenements(void)
     requete("Alarm/Stop", "[]");
     fake_push_response(0xC5, (const uint8_t[]){0, 0}, 2);
     handlers_tick(&app);
-    CHECK(dernier_contient("\"state\":\"idle\"") &&
-          dernier_contient("\"1\":\"idle\",\"2\":\"idle\""),
+    CHECK(recent_contient("\"state\":\"idle\",\"alarm\":null,\"alarms\":{\"1\":\"idle\",\"2\":\"idle\"}", 2),
           "après Alarm/Stop : les deux alarmes au repos");
+    CHECK(dernier_contient("\"sunrise_progress\"") &&
+          dernier_contient("\"alarm\":null,\"brightness\":0"),
+          "et la progression du lever de soleil revient à 0");
 
     /* Fin du minuteur radio. */
     fake_push_event(0xED, NULL, 0);

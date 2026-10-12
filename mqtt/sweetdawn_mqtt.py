@@ -493,6 +493,42 @@ def build_entities():
                                {"": Channel(get=lambda c, n=n: or_none(ALARM_PHASES.get(
                                    value_in(c, "status", "alarm_state", "alarms", n))))},
                                dict(phase)))
+    # Lever de soleil : actif pendant la montée de lumière, et luminosité
+    # atteinte par la lampe (relue toutes les 10 s par le service). Global,
+    # puis pour chaque alarme.
+    def sunrise_on(c, n=None):
+        alarms = value_in(c, "status", "alarm_state", "alarms")
+        if alarms is None:
+            return None
+        keys = [n] if n else ["1", "2"]
+        return on_off(any(alarms.get(k) == "sunrise" for k in keys))
+
+    def sunrise_brightness(c, n=None):
+        sunrise = value_in(c, "status", "alarm_state", "sunrise")
+        if sunrise is None:
+            return None
+        if n and str(sunrise.get("alarm")) != n:
+            return "0"
+        return str(sunrise.get("brightness") or 0)
+
+    progress = {"unit_of_measurement": "%", "state_class": "measurement",
+                "icon": "mdi:weather-sunset-up"}
+    entities.append(Entity("binary_sensor", "sunrise", "Lever de soleil", "status",
+                           {"": Channel(get=sunrise_on)},
+                           {"payload_on": "ON", "payload_off": "OFF",
+                            "icon": "mdi:weather-sunset-up"}))
+    entities.append(Entity("sensor", "sunrise_progress", "Progression lever de soleil",
+                           "status", {"": Channel(get=sunrise_brightness)}, dict(progress)))
+    for n in ("1", "2"):
+        entities.append(Entity("binary_sensor", f"sunrise{n}", f"Lever de soleil {n}",
+                               "status", {"": Channel(get=lambda c, n=n: sunrise_on(c, n))},
+                               {"payload_on": "ON", "payload_off": "OFF",
+                                "icon": "mdi:weather-sunset-up"}))
+        entities.append(Entity("sensor", f"sunrise{n}_progress",
+                               f"Progression lever de soleil {n}", "status",
+                               {"": Channel(get=lambda c, n=n: sunrise_brightness(c, n))},
+                               dict(progress)))
+
     entities.append(Entity("binary_sensor", "alarm_ringing", "Réveil sonne", "status",
                            {"": Channel(get=lambda c: on_off(
                                value_in(c, "status", "alarm_state", "state") == "ringing"
@@ -785,6 +821,10 @@ class Bridge:
 
         if name == "alarm_state":
             self.cache.setdefault("status", {})["alarm_state"] = data
+            self.publish_group("status")
+        elif name == "sunrise_progress":
+            state = self.cache.setdefault("status", {}).setdefault("alarm_state", {})
+            state["sunrise"] = data
             self.publish_group("status")
         elif name == "light_changed":
             # L'événement contient déjà l'état relu : pas de requête.

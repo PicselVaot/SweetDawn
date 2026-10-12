@@ -151,6 +151,7 @@ SWEETDAWN_SOCKET=/tmp/sweetdawn.sock sweetdawn-ctl status
 - **Radio** switch, volume, preset, frequency, seek and tune buttons;
 - **Alarms**: on/off, time, each day, tone, volume, snooze, sunrise; stop and snooze buttons;
 - **Next alarm** timestamps: Home Assistant shows "in 11 hours" and can use them in automations;
+- **Sunrise**: on/off and progress (lamp brightness reached, in %) sensors, for each alarm and for both together;
 - **Alarm**: three-state sensors (`off`, `en cours` during the sunrise or a snooze, `on` while ringing) for each alarm and for both together, the detailed state (`repos`, `lever de soleil`, `sonne`, `snooze`) and an **alarm ringing** binary sensor, all updated live;
 - **AML clock**: shows the device time and lets you set another one;
 - **Settings**, and a **Bluetooth connectivity** sensor.
@@ -212,7 +213,8 @@ Values may be sent as JSON strings, numbers or booleans: `[75]`, `["75"]`, `[tru
 {"connected": true, "known": true, "age_ms": 842, "authorization": 22,
  "settings": {"display_brightness": "H", "display_time": "24", "time": "auto", "feedback": true, "fade": true},
  "clock": {"known": true, "time": "2026-10-12T18:27:38+02:00", "offset_s": 0},
- "alarm_state": {"state": "idle", "alarm": null, "alarms": {"1": "idle", "2": "idle"}}}
+ "alarm_state": {"state": "idle", "alarm": null, "alarms": {"1": "idle", "2": "idle"},
+                 "sunrise": {"alarm": null, "brightness": 0}}}
 ```
 
 - `connected` — the Bluetooth link is currently open.
@@ -233,6 +235,7 @@ After `subscribe`, the service pushes events on the same connection, between res
 {"type": "event", "event": "alarm_state", "data": {"state": "ringing", "alarm": 2, "alarms": {"1": "idle", "2": "ringing"}}}
 {"type": "event", "event": "light_changed", "data": {"light": {...}, "mood": {...}}}
 {"type": "event", "event": "timer_ended", "data": {"timer": "radio"}}
+{"type": "event", "event": "sunrise_progress", "data": {"alarm": 1, "brightness": 45}}
 ```
 
 | Event | When | Data |
@@ -240,6 +243,7 @@ After `subscribe`, the service pushes events on the same connection, between res
 | `alarm_state` | An alarm state changes | `alarms`: the state of each alarm (`idle`, `sunrise`, `ringing` or `snoozed`); `state` and `alarm`: the most advanced one (ringing, then snoozed, then sunrise), `alarm` being `null` when both are idle |
 | `light_changed` | The light or mood light changed on the device (button, gesture sensor, timer) | Both states, as returned by `Light` and `Mood` |
 | `timer_ended` | A sleep timer ended | `timer`: `light`, `mood`, `radio` or `music` |
+| `sunrise_progress` | During a sunrise, every 10 s, as the lamp brightens | `alarm`: 1, 2 or `null`; `brightness`: lamp brightness reached (0–100), back to 0 when the sunrise ends |
 
 Both alarms are tracked separately, since they can overlap (one ringing during the other's sunrise). The AML005 reports the sunrise and the ringing itself, but nothing when it is tapped (snooze) or stopped with its button. While an alarm is active, the service reads its state every 10 s. When the ringing stops, the state becomes `snoozed` for the alarm's snooze duration: if it does not ring again, it was stopped, and the state returns to `idle`. A stop sent through SweetDawn (`Alarm/Stop`) is known, and gives `idle` at once.
 

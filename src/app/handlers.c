@@ -902,6 +902,7 @@ static int ecrire_haut_parleur(const Command *command, int argc,
  *    "data":{"state":"ringing","alarm":2,"alarms":{"1":"idle","2":"ringing"}}}
  *   {"type":"event","event":"light_changed","data":{"light":{...},"mood":{...}}}
  *   {"type":"event","event":"timer_ended","data":{"timer":"radio"}}
+ *   {"type":"event","event":"sunrise_progress","data":{"alarm":1,"brightness":45}}
  *
  * État du réveil : l'AML signale le début du lever de soleil (C6) et la
  * sonnerie (C7), mais rien quand on le tape (snooze) ou qu'on l'arrête
@@ -959,6 +960,13 @@ static struct {
     bool surveiller;             /* relire l'état régulièrement        */
     int64_t prochaine_lecture_ms;
     bool arret_demande;          /* Alarm/Stop envoyé par SweetDawn    */
+
+    /*
+     * Lever de soleil en cours : alarme concernée (0 si aucun) et
+     * luminosité atteinte par la lampe, relue avec l'état.
+     */
+    int lever_alarme;
+    int lever_luminosite;
     unsigned connexions;         /* pour relire l'état après reconnexion */
 
     /* Diffusion aux clients. */
@@ -1047,7 +1055,58 @@ static struct json_object *reveil_json(void)
                            ? json_object_new_int(principale)
                            : json_object_new_null());
     json_object_object_add(object, "alarms", alarms);
+
+    /* Lever de soleil en cours : alarme et luminosité atteinte (0 à 100). */
+    struct json_object *sunrise = json_object_new_object();
+
+    json_object_object_add(sunrise, "alarm", evenements.lever_alarme
+                           ? json_object_new_int(evenements.lever_alarme)
+                           : json_object_new_null());
+    json_object_object_add(sunrise, "brightness",
+                           json_object_new_int(evenements.lever_luminosite));
+    json_object_object_add(object, "sunrise", sunrise);
     return object;
+}
+
+/*
+ * Pendant un lever de soleil, la luminosité de la lampe monte
+ * progressivement jusqu'à celle de l'alarme (constaté sur le matériel).
+ * La relit et diffuse sunrise_progress quand elle change ; repasse à 0
+ * quand le lever de soleil se termine.
+ */
+static void suivre_lever(SweetDawn *app)
+{
+    int alarme = 0;
+    int luminosite = 0;
+
+    for (int n = 1; n <= 2; n++) {
+        if (evenements.alarmes[n - 1].etat == REVEIL_LEVER)
+            alarme = n;
+    }
+
+    if (alarme != 0) {
+        ControlLight light;
+
+        if (control_light_query(app, CONTROL_LIGHT, &light) != 0)
+            return;
+
+        luminosite = light.brightness;
+    }
+
+    if (alarme == evenements.lever_alarme &&
+        luminosite == evenements.lever_luminosite)
+        return;
+
+    evenements.lever_alarme = alarme;
+    evenements.lever_luminosite = luminosite;
+
+    struct json_object *data = json_object_new_object();
+
+    json_object_object_add(data, "alarm", alarme
+                           ? json_object_new_int(alarme)
+                           : json_object_new_null());
+    json_object_object_add(data, "brightness", json_object_new_int(luminosite));
+    diffuser("sunrise_progress", data);
 }
 
 /* Change l'état d'une alarme (1 ou 2) ; la diffusion est groupée. */
@@ -1149,6 +1208,7 @@ static void suivre_reveil(SweetDawn *app, int64_t now)
     }
 
     diffuser_reveil();
+    suivre_lever(app);
 }
 
 /* Relit Light et Mood, puis diffuse light_changed. */
