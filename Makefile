@@ -2,13 +2,16 @@
 #  SweetDawn — Makefile
 # ============================================================================
 #
-#  make            Compile les deux programmes et tous les tests.
-#  make test       Lance les tests automatiques (aucun Bluetooth requis).
-#  make clean      Supprime tout ce qui a été compilé (le dossier bin/).
+#  make                    Compile les programmes et tous les tests.
+#  make test               Lance les tests automatiques (aucun Bluetooth requis).
+#  make install-service    Installe et démarre le service systemd (sudo).
+#  make uninstall-service  Arrête et retire le service systemd (sudo).
+#  make clean              Supprime tout ce qui a été compilé (le dossier bin/).
 #
 #  Les programmes produits :
 #    bin/sweetdawn          Diagnostic ponctuel : lit l'AML puis s'arrête.
 #    bin/sweetdawn-service  Service persistant, piloté via un socket Unix.
+#    bin/sweetdawn-ctl      Client du service : une commande, une réponse.
 #
 #  Tout ce qui est compilé va dans bin/ ; les fichiers objets vont dans
 #  bin/obj/, en reproduisant l'arborescence de src/ et test/.
@@ -67,7 +70,7 @@ FAKE_AML := $(OBJ)/test/fake_aml.o
 #  Programmes
 # ----------------------------------------------------------------------------
 
-PROGRAMS := $(BIN)/sweetdawn $(BIN)/sweetdawn-service
+PROGRAMS := $(BIN)/sweetdawn $(BIN)/sweetdawn-service $(BIN)/sweetdawn-ctl
 
 TESTS := $(BIN)/test_protocol \
          $(BIN)/test_state \
@@ -78,7 +81,7 @@ TESTS := $(BIN)/test_protocol \
          $(BIN)/test_handlers \
          $(BIN)/test_ipc
 
-.PHONY: all test clean rebuild
+.PHONY: all test clean rebuild install-service uninstall-service
 
 all: $(PROGRAMS) $(TESTS)
 
@@ -94,6 +97,10 @@ $(BIN)/sweetdawn-service: $(OBJ)/app/service.o $(HANDLERS) \
                           $(CORE_CONFIG) $(CORE_STATE) $(CORE_SWEETDAWN) \
                           $(CORE_CONTROL) $(COMMANDS) $(IPC)
 	$(CC) $^ $(JSON_LIBS) $(BLUETOOTH_LIBS) -o $@
+
+# Client : ne parle qu'au socket du service, jamais au Bluetooth.
+$(BIN)/sweetdawn-ctl: $(OBJ)/app/ctl.o
+	$(CC) $^ $(JSON_LIBS) -o $@
 
 
 # ----------------------------------------------------------------------------
@@ -162,6 +169,29 @@ $(BIN):
 
 clean:
 	rm -rf $(BIN)
+
+
+# ----------------------------------------------------------------------------
+#  Service systemd
+# ----------------------------------------------------------------------------
+#  Le service exécute bin/sweetdawn-service depuis ce dossier : après un
+#  nouveau `make`, il suffit de `sudo systemctl restart sweetdawn`.
+#  sweetdawn-ctl est copié dans /usr/local/bin pour être tapé de partout.
+
+UNIT := /etc/systemd/system/sweetdawn.service
+
+install-service: $(BIN)/sweetdawn-service $(BIN)/sweetdawn-ctl
+	sed -e 's|@USER@|$(USER)|g' -e 's|@DIR@|$(CURDIR)|g' \
+	    systemd/sweetdawn.service | sudo tee $(UNIT) > /dev/null
+	sudo install -m 755 $(BIN)/sweetdawn-ctl /usr/local/bin/sweetdawn-ctl
+	sudo systemctl daemon-reload
+	sudo systemctl enable --now sweetdawn
+	@echo "Service installé : systemctl status sweetdawn"
+
+uninstall-service:
+	-sudo systemctl disable --now sweetdawn
+	sudo rm -f $(UNIT) /usr/local/bin/sweetdawn-ctl
+	sudo systemctl daemon-reload
 
 rebuild: clean
 	$(MAKE) all

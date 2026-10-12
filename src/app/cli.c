@@ -10,8 +10,8 @@
  * nouvelle commande du protocole.
  *
  * Ce programme parle directement à l'AML, sans passer par le service.
- * Ne pas le lancer pendant que bin/sweetdawn-service tourne : l'AML
- * n'accepte qu'une liaison à la fois.
+ * L'AML n'accepte qu'une liaison à la fois : arrêter d'abord le service
+ * (sudo systemctl stop sweetdawn), puis le relancer après.
  *
  * Usage : ./bin/sweetdawn [nom_appareil]
  */

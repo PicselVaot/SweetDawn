@@ -1,0 +1,33 @@
+# SweetDawn — service de contrôle de l'AML005
+#
+# Modèle : @USER@ et @DIR@ sont remplacés par `make install-service`,
+# qui installe le résultat dans /etc/systemd/system/.
+#
+# Commandes utiles :
+#   systemctl status sweetdawn      état du service
+#   journalctl -u sweetdawn -f      messages en direct
+#   sudo systemctl restart sweetdawn   après un `make`
+
+[Unit]
+Description=SweetDawn - controle de l'AML005
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=@USER@
+
+# config/aml.json est lu relativement à ce dossier.
+WorkingDirectory=@DIR@
+ExecStart=@DIR@/bin/sweetdawn-service
+
+# Crée /run/sweetdawn/ pour le socket IPC, et le supprime à l'arrêt.
+RuntimeDirectory=sweetdawn
+RuntimeDirectoryMode=0750
+
+# Redémarre après un plantage, pas après un arrêt volontaire.
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

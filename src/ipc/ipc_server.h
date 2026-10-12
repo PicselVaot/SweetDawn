@@ -32,6 +32,17 @@
 #include <stddef.h>
 #include <json-c/json.h>
 
+/*
+ * Socket utilisé par défaut, par le service comme par ses clients.
+ *
+ * /run/sweetdawn/ est créé par systemd au démarrage du service
+ * (RuntimeDirectory= dans systemd/sweetdawn.service). Pour un lancement
+ * manuel, choisir un autre chemin avec la variable d'environnement
+ * IPC_SOCKET_ENV (ex. SWEETDAWN_SOCKET=/tmp/sweetdawn.sock).
+ */
+#define IPC_DEFAULT_SOCKET "/run/sweetdawn/sweetdawn.sock"
+#define IPC_SOCKET_ENV     "SWEETDAWN_SOCKET"
+
 /* Nombre maximal de clients connectés simultanément. */
 #define IPC_SERVER_MAX_CLIENTS 16
 

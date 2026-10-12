@@ -15,6 +15,8 @@ The project is designed to run as a persistent background service, allowing mult
 - **Configuration** — Load device and application settings from JSON.
 - **Persistent service** — Keep a single Bluetooth connection alive, refresh the device state periodically, and reconnect automatically with backoff.
 - **Local IPC** — Serve multiple clients over a Unix domain socket with newline-delimited JSON.
+- **Command-line client** — `sweetdawn-ctl Light/Enable true`, answered in about 100 ms through the open connection.
+- **systemd integration** — Start the service at boot and restart it on failure.
 - **Device control** — Read and change settings, alarms, light, mood light, radio and Bluetooth speaker through IPC.
 - **Automated tests** — Test protocol handling, configuration, state management, command registration, link supervision, and IPC.
 
@@ -23,7 +25,6 @@ The project is designed to run as a persistent background service, allowing mult
 - **State events** — Notify connected clients when the device state changes.
 - **MQTT integration** — Publish device state and accept commands from a home automation system.
 - **Graphical interface** — Provide a GUI client alongside the command-line interface.
-- **systemd integration** — Start the service at boot and restart it on failure.
 
 > SweetDawn is under active development. Features listed under *Planned* are not implemented yet.
 
@@ -132,17 +133,45 @@ Connect, read the device status and settings, print every frame in hexadecimal, 
 ./bin/sweetdawn [device_name]
 ```
 
-Do not run it while the service is running: the AML005 accepts only one connection at a time.
+The AML005 accepts only one connection at a time: stop the service first (`sudo systemctl stop sweetdawn`), then start it again afterwards.
 
 ### Service
 
-Run the persistent service:
+The service keeps a single Bluetooth connection to the AML005 open, reconnects automatically, and executes commands sent by clients. Install it as a systemd service (requires sudo):
 
 ```bash
-./bin/sweetdawn-service [device_name] [socket_path]
+make install-service
 ```
 
-The socket defaults to `/tmp/sweetdawn.sock`. The service starts even if the AML005 is unreachable and connects as soon as it becomes available.
+It then starts at boot and restarts after a crash. Useful commands:
+
+```bash
+systemctl status sweetdawn          # is it running?
+journalctl -u sweetdawn -f          # live log
+sudo systemctl restart sweetdawn    # after rebuilding with make
+make uninstall-service              # remove it
+```
+
+The IPC socket is `/run/sweetdawn/sweetdawn.sock`. To run the service by hand instead, pick another socket path:
+
+```bash
+./bin/sweetdawn-service [device_name] /tmp/sweetdawn.sock
+```
+
+### Command-line client
+
+`sweetdawn-ctl` sends one command to the running service and prints the answer. `make install-service` copies it to `/usr/local/bin`:
+
+```bash
+sweetdawn-ctl status
+sweetdawn-ctl Light                       # read the light state
+sweetdawn-ctl Light/Enable true           # turn the light on
+sweetdawn-ctl Radio/>>                    # seek the next station
+sweetdawn-ctl "Alarm/Alarm 1/Time" 07:30  # names with spaces need quotes
+sweetdawn-ctl commands                    # every available command
+```
+
+Exit code: 0 on success, 1 if the command was refused or failed, 2 if the service is unreachable. Set `SWEETDAWN_SOCKET` to use another socket path.
 
 ### IPC protocol
 
@@ -211,7 +240,7 @@ Some device commands are not acknowledged by the AML005 (see [docs/PROTOCOL.md](
 Quick test from a shell:
 
 ```bash
-echo '{"type":"request","id":1,"command":"Light","args":[]}' | nc -U -q1 /tmp/sweetdawn.sock
+echo '{"type":"request","id":1,"command":"Light","args":[]}' | nc -U -q1 /run/sweetdawn/sweetdawn.sock
 ```
 
 ## Project structure
@@ -223,6 +252,7 @@ src/
 ├── app/                     # Programs
 │   ├── cli.c                #   bin/sweetdawn: one-shot diagnostic
 │   ├── service.c            #   bin/sweetdawn-service: persistent service
+│   ├── ctl.c                #   bin/sweetdawn-ctl: command-line client
 │   └── handlers.c / .h      #   IPC commands of the service
 ├── ipc/                     # Talking to clients
 │   ├── ipc_server.c / .h    #   Unix domain socket server
@@ -242,6 +272,7 @@ src/
 
 test/                        # One test program per module (fake_aml.c: fake device)
 docs/PROTOCOL.md             # AML005 Bluetooth protocol reference
+systemd/sweetdawn.service    # systemd unit template (make install-service)
 config/                      # Example configuration (local aml.json is ignored)
 ```
 
@@ -274,10 +305,10 @@ SweetDawn follows a few core principles:
 - [x] Unix domain socket IPC
 - [x] Device control commands over IPC
 - [ ] State change events
-- [ ] CLI client communicating with the service
+- [x] CLI client communicating with the service
 - [ ] MQTT integration
 - [ ] Graphical client
-- [ ] systemd service integration
+- [x] systemd service integration
 
 ## License
 

@@ -17,7 +17,10 @@
  * Usage : ./bin/sweetdawn-service [nom_appareil] [chemin_socket]
  *   nom_appareil  : entrée de config/aml.json (défaut : la première).
  *                   Passer "" pour garder le défaut et préciser le socket.
- *   chemin_socket : défaut /tmp/sweetdawn.sock.
+ *   chemin_socket : défaut $SWEETDAWN_SOCKET, sinon
+ *                   /run/sweetdawn/sweetdawn.sock (voir ipc/ipc_server.h).
+ *
+ * En temps normal, il est lancé par systemd (systemd/sweetdawn.service).
  *
  * Arrêt propre : Ctrl+C ou SIGTERM.
  */
@@ -30,11 +33,11 @@
 
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Chemin relatif : le service doit être lancé depuis la racine du projet. */
 #define SERVICE_CONFIG_PATH "config/aml.json"
-#define SERVICE_DEFAULT_SOCKET "/tmp/sweetdawn.sock"
 
 /* Adapte sweetdawn_tick() à la signature attendue par le serveur IPC. */
 static void service_tick(void *context)
@@ -54,8 +57,10 @@ int main(int argc, char **argv)
     }
 
     const char *device_name = argc >= 2 ? argv[1] : NULL;
-    const char *socket_path =
-        argc >= 3 ? argv[2] : SERVICE_DEFAULT_SOCKET;
+    const char *socket_path = argc >= 3 ? argv[2] : getenv(IPC_SOCKET_ENV);
+
+    if (socket_path == NULL || socket_path[0] == '\0')
+        socket_path = IPC_DEFAULT_SOCKET;
 
     SweetDawn app;
     IpcServer server;
