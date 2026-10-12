@@ -29,6 +29,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -41,9 +42,6 @@
  */
 #define IPC_POLL_TIMEOUT_MS 1000
 
-/* Une réponse peut être un peu plus longue que la requête qu'elle cite. */
-#define IPC_OUTPUT_SIZE (IPC_SERVER_MAX_MESSAGE + 1024)
-
 /* Nombre d'octets lus au plus à chaque recv(). */
 #define IPC_READ_SIZE 1024
 
@@ -52,8 +50,10 @@
  *
  * input  : octets reçus pas encore traités (une ligne partielle, ou
  *          plusieurs lignes arrivées d'un coup).
- * output : réponse en cours d'envoi ; output_offset indique ce qui est
- *          déjà parti. output_length == 0 : aucune réponse en attente.
+ * output : réponse en cours d'envoi, allouée à sa taille exacte (la
+ *          liste des commandes, par exemple, dépasse largement une
+ *          requête) ; output_offset indique ce qui est déjà parti.
+ *          output_length == 0 : aucune réponse en attente.
  */
 typedef struct {
     int fd;            /* -1 : emplacement libre */
@@ -61,7 +61,7 @@ typedef struct {
     char input[IPC_SERVER_MAX_MESSAGE + 1];
     size_t input_length;
 
-    char output[IPC_OUTPUT_SIZE];
+    char *output;
     size_t output_length;
     size_t output_offset;
 } IpcClient;
@@ -150,6 +150,8 @@ static void client_reset(IpcClient *client)
         close(client->fd);
     }
 
+    free(client->output);
+
     memset(client, 0, sizeof(*client));
     client->fd = -1;
 }
@@ -196,11 +198,15 @@ static int queue_response(
     }
 
     size_t length = strlen(serialized);
+    char *output = malloc(length + 1);
 
-    if (length + 1 > sizeof(client->output)) {
+    if (output == NULL) {
         json_object_put(response);
         return -1;
     }
+
+    free(client->output);
+    client->output = output;
 
     memcpy(client->output, serialized, length);
     client->output[length] = '\n';
@@ -535,6 +541,9 @@ static int write_client(IpcClient *client)
         client->output_offset += (size_t)count;
     }
 
+    /* Réponse entièrement partie : le client peut envoyer la suivante. */
+    free(client->output);
+    client->output = NULL;
     client->output_length = 0;
     client->output_offset = 0;
 

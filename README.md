@@ -160,7 +160,7 @@ The IPC socket is `/run/sweetdawn/sweetdawn.sock`. To run the service by hand in
 
 ### Command-line client
 
-`sweetdawn-ctl` sends one command to the running service and prints the answer. `make install-service` copies it to `/usr/local/bin`:
+`sweetdawn-ctl` sends one command to the running service and prints the answer. `make install-service` links it into `/usr/local/bin`:
 
 ```bash
 sweetdawn-ctl status
@@ -171,6 +171,8 @@ sweetdawn-ctl Alarm/1/Time 07:30          # set alarm 1
 sweetdawn-ctl "Alarm/1/Tone volume" 5     # names with spaces need quotes
 sweetdawn-ctl commands                    # every available command
 ```
+
+**Every available command, with its values and limits, is listed in [docs/COMMANDS.md](docs/COMMANDS.md).**
 
 Exit code: 0 on success, 1 if the command was refused or failed, 2 if the service is unreachable. Set `SWEETDAWN_SOCKET` to use another socket path.
 
@@ -199,6 +201,8 @@ Error response:
 ```
 
 #### Commands
+
+The full list of commands is in [docs/COMMANDS.md](docs/COMMANDS.md).
 
 | Command | Args | Effect |
 |---|---|---|
@@ -272,6 +276,7 @@ src/
     └── protocol.c / .h      #   Frame format, building and parsing
 
 test/                        # One test program per module (fake_aml.c: fake device)
+docs/COMMANDS.md             # Every command, with values and limits
 docs/PROTOCOL.md             # AML005 Bluetooth protocol reference
 systemd/sweetdawn.service    # systemd unit template (make install-service)
 config/                      # Example configuration (local aml.json is ignored)

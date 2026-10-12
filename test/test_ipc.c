@@ -7,7 +7,8 @@
  *     actif ni d'un fichier ordinaire ;
  *   - l'appel régulier de la tâche périodique ;
  *   - plusieurs requêtes dans un seul envoi, une requête en plusieurs
- *     morceaux, et le rejet propre d'un JSON invalide.
+ *     morceaux, le rejet propre d'un JSON invalide, et une réponse
+ *     bien plus grande qu'une requête.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -255,6 +256,42 @@ static int test_tick(void)
     return failures;
 }
 
+/* Taille de la réponse de la commande "big" (bien plus qu'une requête). */
+#define BIG_RESULT_SIZE 20000
+
+/*
+ * Gestionnaire du serveur de test : "big" renvoie une très grande
+ * réponse ; toute autre commande est déclarée non implémentée.
+ */
+static int big_handler(
+    const char *command,
+    struct json_object *args,
+    struct json_object **result,
+    char *error_code,
+    size_t error_code_capacity,
+    char *error_message,
+    size_t error_message_capacity,
+    void *context)
+{
+    static char text[BIG_RESULT_SIZE + 1];
+
+    (void)args;
+    (void)context;
+
+    if (strcmp(command, "big") != 0) {
+        snprintf(error_code, error_code_capacity, "COMMAND_NOT_IMPLEMENTED");
+        snprintf(error_message, error_message_capacity, "Test");
+        return -1;
+    }
+
+    memset(text, 'x', BIG_RESULT_SIZE);
+    text[BIG_RESULT_SIZE] = '\0';
+
+    *result = json_object_new_object();
+    json_object_object_add(*result, "data", json_object_new_string(text));
+    return 0;
+}
+
 int main(void)
 {
     int early_failures = test_socket_orphelin() + test_tick();
@@ -281,6 +318,8 @@ int main(void)
             fprintf(stderr, "Initialisation IPC : %s\n", error);
             _exit(2);
         }
+
+        ipc_server_set_handler(&server, big_handler, NULL);
 
         int result = ipc_server_run(&server);
 
@@ -427,6 +466,28 @@ int main(void)
         failures += check(
             1,
             "JSON invalide rejete proprement") != 0;
+    }
+
+    /*
+     * Une réponse bien plus grande qu'une requête (comme la liste des
+     * commandes) doit arriver entière.
+     */
+    const char *big = "{\"type\":\"request\",\"id\":4,"
+                      "\"command\":\"big\",\"args\":[]}\n";
+    static char big_line[BIG_RESULT_SIZE + 1024];
+
+    if (write(fd, big, strlen(big)) != (ssize_t)strlen(big) ||
+        read_line(fd, big_line, sizeof(big_line)) != 0 ||
+        strlen(big_line) < BIG_RESULT_SIZE ||
+        strstr(big_line, "\"id\":4") == NULL) {
+
+        failures++;
+        fprintf(stderr, "ECHEC: grande reponse\n");
+
+    } else {
+        failures += check(
+            1,
+            "une reponse de plus de 20 Ko arrive entiere") != 0;
     }
 
     close(fd);

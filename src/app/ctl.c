@@ -183,7 +183,8 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    char line[IPC_SERVER_MAX_MESSAGE + 1024];
+    /* Assez grand pour la réponse la plus longue : "commands". */
+    static char line[256 * 1024];
 
     if (envoyer_tout(fd, message, (size_t)length) != 0 ||
         lire_ligne(fd, line, sizeof(line)) != 0) {

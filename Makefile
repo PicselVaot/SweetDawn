@@ -176,14 +176,15 @@ clean:
 # ----------------------------------------------------------------------------
 #  Le service exécute bin/sweetdawn-service depuis ce dossier : après un
 #  nouveau `make`, il suffit de `sudo systemctl restart sweetdawn`.
-#  sweetdawn-ctl est copié dans /usr/local/bin pour être tapé de partout.
+#  /usr/local/bin/sweetdawn-ctl est un lien vers bin/sweetdawn-ctl : il
+#  suit donc chaque nouveau `make` et se tape de partout.
 
 UNIT := /etc/systemd/system/sweetdawn.service
 
 install-service: $(BIN)/sweetdawn-service $(BIN)/sweetdawn-ctl
 	sed -e 's|@USER@|$(USER)|g' -e 's|@DIR@|$(CURDIR)|g' \
 	    systemd/sweetdawn.service | sudo tee $(UNIT) > /dev/null
-	sudo install -m 755 $(BIN)/sweetdawn-ctl /usr/local/bin/sweetdawn-ctl
+	sudo ln -sf $(CURDIR)/$(BIN)/sweetdawn-ctl /usr/local/bin/sweetdawn-ctl
 	sudo systemctl daemon-reload
 	sudo systemctl enable --now sweetdawn
 	@echo "Service installé : systemctl status sweetdawn"
