@@ -384,14 +384,14 @@ int aml_commands_init(AmlCommandTree *tree)
     }
 
     Command *alarme1 = ajouter_commande(
-        tree, group, "Alarm 1", "Consulter ou modifier l'alarme 1"
+        tree, group, "1", "Consulter ou modifier l'alarme 1"
     );
     if (alarme1 == NULL || ajouter_parametres_alarme(tree, alarme1) != 0) {
         goto erreur;
     }
 
     Command *alarme2 = ajouter_commande(
-        tree, group, "Alarm 2", "Consulter ou modifier l'alarme 2"
+        tree, group, "2", "Consulter ou modifier l'alarme 2"
     );
     if (alarme2 == NULL || ajouter_parametres_alarme(tree, alarme2) != 0) {
         goto erreur;

@@ -38,7 +38,7 @@ Command *registry_find(
  * Exemples :
  *   Light
  *   Light/Brightness
- *   AML/Alarm/Alarm 1/Days
+ *   AML/Alarm/1/Days
  */
 Command *registry_find_path(
     const CommandRegistry *registry,

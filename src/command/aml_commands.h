@@ -7,7 +7,7 @@
  * Décrit tout ce que l'appareil sait faire, groupé par fonction :
  *
  *   Settings      luminosité et format d'affichage, heure, son, fondu
- *   Alarm         Alarm 1 et Alarm 2 : heure, jours, sonnerie, lever de soleil
+ *   Alarm         1 et 2 : heure, jours, sonnerie, lever de soleil
  *   Light         éclairage principal, coucher de soleil
  *   Mood          éclairage d'ambiance : couleur, scènes, minuteur
  *   Radio         FM : fréquence, canaux, volume, arrêt programmé

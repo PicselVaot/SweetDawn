@@ -45,10 +45,10 @@ static void tester_structure(AmlCommandTree *tree)
     assert(chercher(tree, "Settings/Feedback") != NULL);
     assert(chercher(tree, "Settings/Fade") != NULL);
 
-    assert(chercher(tree, "Alarm/Alarm 1/Enable") != NULL);
-    assert(chercher(tree, "Alarm/Alarm 1/Days") != NULL);
-    assert(chercher(tree, "Alarm/Alarm 1/Snooze") != NULL);
-    assert(chercher(tree, "Alarm/Alarm 2/Tone") != NULL);
+    assert(chercher(tree, "Alarm/1/Enable") != NULL);
+    assert(chercher(tree, "Alarm/1/Days") != NULL);
+    assert(chercher(tree, "Alarm/1/Snooze") != NULL);
+    assert(chercher(tree, "Alarm/2/Tone") != NULL);
 
     assert(chercher(tree, "Light/Enable") != NULL);
     assert(chercher(tree, "Light/Brightness") != NULL);
@@ -98,9 +98,9 @@ static void tester_booleens(AmlCommandTree *tree)
 static void tester_entiers(AmlCommandTree *tree)
 {
     Command *brightness = chercher(tree, "Light/Brightness");
-    Command *days = chercher(tree, "Alarm/Alarm 1/Days");
+    Command *days = chercher(tree, "Alarm/1/Days");
     Command *volume = chercher(tree, "Radio/Volume");
-    Command *sunrise = chercher(tree, "Alarm/Alarm 1/Sunrise duration");
+    Command *sunrise = chercher(tree, "Alarm/1/Sunrise duration");
 
     assert(brightness != NULL);
     assert(days != NULL);
@@ -140,7 +140,7 @@ static void tester_entiers(AmlCommandTree *tree)
  */
 static void tester_textes_et_actions(AmlCommandTree *tree)
 {
-    Command *time = chercher(tree, "Alarm/Alarm 1/Time");
+    Command *time = chercher(tree, "Alarm/1/Time");
     Command *color = chercher(tree, "Mood/Color");
     Command *stop = chercher(tree, "Alarm/Stop");
     Command *seek = chercher(tree, "Radio/>>");
@@ -161,8 +161,8 @@ static void tester_choix(AmlCommandTree *tree)
     Command *brightness = chercher(tree, "Settings/Display brightness");
     Command *display_time = chercher(tree, "Settings/Display time");
     Command *time_mode = chercher(tree, "Settings/Time");
-    Command *snooze = chercher(tree, "Alarm/Alarm 1/Snooze");
-    Command *tone = chercher(tree, "Alarm/Alarm 1/Tone");
+    Command *snooze = chercher(tree, "Alarm/1/Snooze");
+    Command *tone = chercher(tree, "Alarm/1/Tone");
     Command *scene = chercher(tree, "Mood/Scene");
 
     assert(brightness != NULL);

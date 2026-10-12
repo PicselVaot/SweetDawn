@@ -167,7 +167,8 @@ sweetdawn-ctl status
 sweetdawn-ctl Light                       # read the light state
 sweetdawn-ctl Light/Enable true           # turn the light on
 sweetdawn-ctl Radio/>>                    # seek the next station
-sweetdawn-ctl "Alarm/Alarm 1/Time" 07:30  # names with spaces need quotes
+sweetdawn-ctl Alarm/1/Time 07:30          # set alarm 1
+sweetdawn-ctl "Alarm/1/Tone volume" 5     # names with spaces need quotes
 sweetdawn-ctl commands                    # every available command
 ```
 
@@ -203,7 +204,7 @@ Error response:
 |---|---|---|
 | `status` | none | Link state and last known settings, answered instantly without querying the device |
 | `commands` | none | The full command tree: names, value types, ranges, choices |
-| a group, e.g. `Light` | none | Reads that part of the device: `Settings`, `Alarm`, `Alarm/Alarm 1`, `Light`, `Mood`, `Radio` |
+| a group, e.g. `Light` | none | Reads that part of the device: `Settings`, `Alarm`, `Alarm/1`, `Light`, `Mood`, `Radio` |
 | a setting, e.g. `Light/Brightness` | one value | Changes it; the value is checked first (type, range, allowed choices) |
 | an action, e.g. `Radio/>>` | none | Runs it: `Settings/Sync time`, `Alarm/Stop`, `Alarm/Snooze`, `Radio/<`, `Radio/>`, `Radio/<<`, `Radio/>>` |
 

@@ -10,7 +10,8 @@
  *   sweetdawn-ctl status
  *   sweetdawn-ctl Light                     lire l'état de la lampe
  *   sweetdawn-ctl Light/Enable true         allumer
- *   sweetdawn-ctl "Alarm/Alarm 1/Time" 07:30
+ *   sweetdawn-ctl Alarm/1/Time 07:30
+ *   sweetdawn-ctl "Alarm/1/Tone volume" 5
  *   sweetdawn-ctl commands                  toutes les commandes
  *
  * Les noms qui contiennent un espace doivent être entre guillemets.
@@ -136,9 +137,10 @@ int main(int argc, char **argv)
                 "Exemples :\n"
                 "  %s status\n"
                 "  %s Light/Enable true\n"
-                "  %s \"Alarm/Alarm 1/Time\" 07:30\n"
+                "  %s Alarm/1/Time 07:30\n"
+                "  %s \"Alarm/1/Tone volume\" 5\n"
                 "  %s commands\n",
-                argv[0], argv[0], argv[0], argv[0], argv[0]);
+                argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
         return 2;
     }
 

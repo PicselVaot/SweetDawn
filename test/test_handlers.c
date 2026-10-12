@@ -165,7 +165,7 @@ static void test_validation(void)
     CHECK(strcmp(last_error, "INVALID_VALUE") == 0,
           "une composante de couleur > 255 est refusée");
 
-    requete("Alarm/Alarm 1/Time", "[\"25:00\"]");
+    requete("Alarm/1/Time", "[\"25:00\"]");
     CHECK(strcmp(last_error, "INVALID_VALUE") == 0,
           "une heure 25:00 est refusée");
 
@@ -247,15 +247,15 @@ static void test_alarme(void)
     printf("\n[5] Alarme (lecture puis réécriture)\n");
     connecter();
 
-    /* Alarm 2 = index 7 : activée, 07:30, lun-ven, sonnerie 2, ... */
+    /* Alarm/2 = index 7 : activée, 07:30, lun-ven, sonnerie 2, ... */
     const uint8_t alarm[] = { 0x87, 1, 30, 7, 0x3E, 2, 5, 1, 1, 20, 80 };
 
     fake_push_response(0xF3, alarm, sizeof(alarm));
     fake_push_response(0xF3, NULL, 0);
 
-    requete("Alarm/Alarm 2/Time", "[\"06:45\"]");
+    requete("Alarm/2/Time", "[\"06:45\"]");
 
-    CHECK(last_rc == 0, "Alarm/Alarm 2/Time réussit");
+    CHECK(last_rc == 0, "Alarm/2/Time réussit");
     CHECK(code_envoye(0) == 0x03 && donnees_envoyees(0)[0] == 0x87 &&
           donnees_envoyees(0)[1] == 0x02,
           "lecture : 03 87 02");
@@ -269,7 +269,7 @@ static void test_alarme(void)
           "les autres réglages sont conservés");
 
     fake_push_response(0xF3, alarm, sizeof(alarm));
-    requete("Alarm/Alarm 2", "[]");
+    requete("Alarm/2", "[]");
     CHECK(strcmp(champ_texte("time"), "07:30") == 0 &&
           strcmp(champ_texte("snooze"), "2") == 0,
           "lecture décodée : 07:30, snooze 2 min");

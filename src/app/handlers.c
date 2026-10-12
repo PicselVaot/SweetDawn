@@ -262,10 +262,10 @@ static int synchroniser_heure(const Command *command, int argc,
 /* Handlers : Alarm                                                          */
 /* ------------------------------------------------------------------------- */
 
-/* "Alarm 1" -> 1, "Alarm 2" -> 2. */
+/* Groupe "1" ou "2" (Alarm/1, Alarm/2) -> numéro de l'alarme. */
 static int numero_alarme(const Command *alarm_group)
 {
-    return strcmp(alarm_group->name, "Alarm 2") == 0 ? 2 : 1;
+    return strcmp(alarm_group->name, "2") == 0 ? 2 : 1;
 }
 
 static struct json_object *alarme_json(const Command *group,
@@ -323,7 +323,7 @@ static int lire_alarmes(const Command *command, int argc,
     (void)argv;
 
     for (int number = 1; number <= 2; number++) {
-        const char *name = number == 1 ? "Alarm 1" : "Alarm 2";
+        const char *name = number == 1 ? "1" : "2";
         const Command *group = command_find_child(command, name);
         ControlAlarm alarm;
 
@@ -642,8 +642,8 @@ static const Liaison LIAISONS[] = {
     { "Settings/Sync time",          synchroniser_heure },
 
     { "Alarm",                       lire_alarmes },
-    { "Alarm/Alarm 1",               lire_alarme },
-    { "Alarm/Alarm 2",               lire_alarme },
+    { "Alarm/1",               lire_alarme },
+    { "Alarm/2",               lire_alarme },
     { "Alarm/Stop",                  agir_sur_alarme },
     { "Alarm/Snooze",                agir_sur_alarme },
 
@@ -675,7 +675,7 @@ static const Liaison LIAISONS[] = {
     { "Media Player/Enable",         ecrire_haut_parleur },
 };
 
-/* Réglages présents sous Alarm/Alarm 1 et Alarm/Alarm 2. */
+/* Réglages présents sous Alarm/1 et Alarm/2. */
 static const char *const REGLAGES_ALARME[] = {
     "Enable", "Time", "Days", "Snooze", "Tone", "Tone volume",
     "Sunrise", "Sunrise duration", "Sunrise brightness"
@@ -714,7 +714,7 @@ int handlers_attach(SweetDawn *app)
         for (size_t i = 0;
              i < sizeof(REGLAGES_ALARME) / sizeof(REGLAGES_ALARME[0]);
              i++) {
-            snprintf(path, sizeof(path), "Alarm/Alarm %d/%s",
+            snprintf(path, sizeof(path), "Alarm/%d/%s",
                      number, REGLAGES_ALARME[i]);
 
             if (lier(registry, path, ecrire_alarme) != 0)

@@ -64,7 +64,7 @@ Les cinq réglages s'écrivent toujours ensemble.
 | `28` snooze | `C8` | — | résultat |
 | `29` arrêt | `C9` | — | résultat |
 
-- index : `01` = Alarm 1, `07` = Alarm 2. En lecture, on ajoute `80`.
+- index : `01` = alarme 1 (`Alarm/1`), `07` = alarme 2 (`Alarm/2`). En lecture, on ajoute `80`.
 - Données reçues en lecture : index \| `80`, enable, **minute, heure** (dans cet ordre), jours, sonnerie, volume, snooze, sunrise, durée du lever de soleil, luminosité.
 - jours : un bit par jour, bit 0 = dimanche, bit 1 = lundi … bit 6 = samedi.
 - snooze : index dans 1, 2, 5, 10, 20, 30 minutes.
