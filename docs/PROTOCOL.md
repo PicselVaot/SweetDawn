@@ -158,14 +158,22 @@ Le 12/10/2026 encore, dans le noir et lumières éteintes, chaque code inconnu d
 
 ## Messages spontanés
 
-Envoyés par l'AML sans requête (pas encore exploités par SweetDawn) :
+Envoyés par l'AML sans requête, une fois la poignée de main faite (pas encore exploités par SweetDawn) :
 
-| Code | Événement |
-|---|---|
-| `C6` | début du lever de soleil |
-| `C7` | l'alarme sonne |
-| `CA` | l'éclairage a changé (à relire) |
-| `EB` | fin du minuteur de Light |
-| `EC` | fin du minuteur de Mood |
-| `ED` | fin du minuteur radio |
-| `EE` | fin du minuteur musique |
+| Code | Données | Événement |
+|---|---|---|
+| `C6` | n° d'alarme | début du lever de soleil ✔ |
+| `C7` | n° d'alarme | l'alarme sonne ✔ |
+| `CA` | — | l'éclairage a changé : le relire avec `30` ✔ |
+| `EB` | ? | fin du minuteur de Light |
+| `EC` | ? | fin du minuteur de Mood |
+| `ED` | ? | fin du minuteur radio |
+| `EE` | ? | fin du minuteur musique |
+
+Observé sur le matériel le 12/10/2026 :
+
+- `C6 02` à 19:42:00 et `C7 02` à 19:44:00 pour l'alarme 2 réglée à 19:44 avec un lever de soleil de 2 min : la donnée est le numéro de l'alarme (1 ou 2), pas son index de protocole.
+- `CA` arrive à chaque changement d'éclairage fait sur l'appareil, y compris par le **capteur de geste** (un mouvement devant l'AML change la lumière), souvent en rafale. L'application d'origine y répond en relisant la lampe.
+- Taper l'AML pendant qu'il sonne déclenche un **snooze**, mais **n'envoie aucun message** : la sonnerie s'arrête et le lever de soleil repart de zéro pour la durée du snooze. Seule la lecture d'état `25` le révèle.
+- État de l'alarme (`25` → `C5`, deux octets) : n° de l'alarme dont le lever de soleil est en cours (0 = aucun), puis n° de l'alarme qui sonne (0 = aucune). Pendant le snooze : `02 00` ; après `Alarm/Stop` : `00 00` ✔.
+- Arrêt (`29` → `C9`) : répond `01` quand une alarme était en cours ✔.
