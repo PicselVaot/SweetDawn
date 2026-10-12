@@ -78,6 +78,13 @@ DEVICE = {
 }
 
 
+# Entités des versions précédentes, à retirer de Home Assistant : une
+# annonce vide (conservée) supprime l'entité correspondante.
+RETIRED_DISCOVERY_TOPICS = [
+    f"{DISCOVERY_PREFIX}/sensor/aml005_aml_time/config",   # fusionnée dans set_time
+]
+
+
 def load_config():
     """Lit config/mqtt.json et le fichier d'identifiants qu'il désigne."""
     with open(CONFIG_PATH, encoding="utf-8") as fp:
@@ -464,18 +471,14 @@ def build_entities():
                            "Settings/Fade", ["settings", "fade"], **config))
     entities.append(button("sync_time", "Mettre à l'heure", "Settings/Sync time",
                            entity_category="config", icon="mdi:clock-check"))
-    # Heure choisie à la main. L'AML ne permet pas de relire son heure :
-    # sans topic d'état, Home Assistant affiche la dernière valeur envoyée.
-    entities.append(Entity("text", "set_time", "Régler l'heure", "status", {
-        "": Channel(set=lambda p, c: [("Settings/Set time", p)]),
-    }, {"pattern": r"^(\d{4}-\d{2}-\d{2} )?([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$",
-        "min": 5, "max": 19, "icon": "mdi:clock-edit-outline"}))
-
-    # Heure de l'AML, recalculée chaque seconde et publiée à chaque
-    # changement de minute (live) : aucune requête vers l'AML.
-    entities.append(Entity("sensor", "aml_time", "Heure de l'AML", "status",
-                           {"": Channel(get=lambda c: or_none(aml_clock(c)))},
-                           {"icon": "mdi:clock-digital"}, live=True))
+    # Heure de l'AML : affiche l'heure calculée (heure du Raspberry Pi plus
+    # l'écart connu, recalculée chaque seconde, publiée à chaque nouvelle
+    # minute : live) et permet d'en choisir une autre. Vide si inconnue.
+    entities.append(Entity("text", "set_time", "Heure de l'AML", "status", {
+        "": Channel(get=lambda c: aml_clock(c) or "",
+                    set=lambda p, c: [("Settings/Set time", p)]),
+    }, {"pattern": r"^$|^(\d{4}-\d{2}-\d{2} )?([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$",
+        "min": 0, "max": 19, "icon": "mdi:clock-edit-outline"}, live=True))
 
     # Écart entre l'horloge de l'AML et celle du Raspberry Pi (0 = à
     # l'heure) ; inconnu en mode manuel ou avant la première mise à l'heure.
@@ -593,6 +596,9 @@ class Bridge:
         for entity in self.entities:
             topic, payload = self.discovery(entity)
             self.client.publish(topic, json.dumps(payload), retain=True)
+
+        for topic in RETIRED_DISCOVERY_TOPICS:
+            self.client.publish(topic, "", retain=True)
 
         # Le fil principal republiera tous les états.
         self.commands.put(("republish", None))
