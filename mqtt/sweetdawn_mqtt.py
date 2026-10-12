@@ -35,6 +35,7 @@ import socket
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -180,6 +181,7 @@ class Entity:
     unique_id: Optional[str] = None
     discovery_topic: Optional[str] = None
     needs_aml: bool = True   # indisponible quand l'AML est déconnecté
+    live: bool = False       # valeur recalculée à chaque tour, sans relecture
 
 
 def value_in(cache, *path):
@@ -206,6 +208,17 @@ def or_none(value):
     "None" comme « inconnu » (publier rien laisserait l'ancienne valeur).
     """
     return "None" if value is None else str(value)
+
+
+def aml_clock(cache):
+    """
+    Heure actuelle de l'AML (HH:MM) : heure du Raspberry Pi plus l'écart
+    connu par le service, ou None si cet écart est inconnu.
+    """
+    if not value_in(cache, "status", "clock", "known"):
+        return None
+    offset = value_in(cache, "status", "clock", "offset_s") or 0
+    return (datetime.now() + timedelta(seconds=offset)).strftime("%H:%M")
 
 
 def next_alarm(cache):
@@ -458,6 +471,12 @@ def build_entities():
     }, {"pattern": r"^(\d{4}-\d{2}-\d{2} )?([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$",
         "min": 5, "max": 19, "icon": "mdi:clock-edit-outline"}))
 
+    # Heure de l'AML, recalculée chaque seconde et publiée à chaque
+    # changement de minute (live) : aucune requête vers l'AML.
+    entities.append(Entity("sensor", "aml_time", "Heure de l'AML", "status",
+                           {"": Channel(get=lambda c: or_none(aml_clock(c)))},
+                           {"icon": "mdi:clock-digital"}, live=True))
+
     # Écart entre l'horloge de l'AML et celle du Raspberry Pi (0 = à
     # l'heure) ; inconnu en mode manuel ou avant la première mise à l'heure.
     entities.append(Entity("sensor", "clock_offset", "Écart horloge AML", "status",
@@ -671,6 +690,14 @@ class Bridge:
             for group in self.GROUPS[1:]:
                 self.refresh(group)
 
+    def publish_live(self):
+        """Republie les valeurs calculées localement (publish ignore l'inchangé)."""
+        for entity in self.entities:
+            if entity.live:
+                for name, channel in entity.channels.items():
+                    self.publish(self.state_topic(entity, name),
+                                 channel.get(self.cache))
+
     def publish(self, topic, payload):
         """Publie seulement si la valeur a changé (états conservés : retain)."""
         if self.published.get(topic) != payload:
@@ -721,6 +748,8 @@ class Bridge:
             if now >= next_poll:
                 self.refresh_all()
                 next_poll = now + self.config["poll_seconds"]
+
+            self.publish_live()
 
     def stop(self, *_):
         self.running = False
