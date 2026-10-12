@@ -175,5 +175,14 @@ Observé sur le matériel le 12/10/2026 :
 - `C6 02` à 19:42:00 et `C7 02` à 19:44:00 pour l'alarme 2 réglée à 19:44 avec un lever de soleil de 2 min : la donnée est le numéro de l'alarme (1 ou 2), pas son index de protocole.
 - `CA` arrive à chaque changement d'éclairage fait sur l'appareil, y compris par le **capteur de geste** (un mouvement devant l'AML change la lumière), souvent en rafale. L'application d'origine y répond en relisant la lampe.
 - Taper l'AML pendant qu'il sonne déclenche un **snooze**, mais **n'envoie aucun message** : la sonnerie s'arrête et le lever de soleil repart de zéro pour la durée du snooze. Seule la lecture d'état `25` le révèle.
-- État de l'alarme (`25` → `C5`, deux octets) : n° de l'alarme dont le lever de soleil est en cours (0 = aucun), puis n° de l'alarme qui sonne (0 = aucune). Pendant le snooze : `02 00` ; après `Alarm/Stop` : `00 00` ✔.
+- État de l'alarme (`25` → `C5`, deux octets) ✔ :
+  1. n° de l'alarme qui **tient la lampe** (lever de soleil, puis sonnerie ; 0 = aucune) ;
+  2. n° de l'alarme qui **sonne** (0 = aucune).
+
+  Pendant le snooze : `02 00` ; après `Alarm/Stop` : `00 00`. Pendant que l'alarme 1 sonne : `01 01`.
+- Pendant le lever de soleil, la **luminosité de la lampe** (lecture `30 01`) monte de 0 à la luminosité de l'alarme : 4, 14, 24… 100 en 2 minutes ✔. La lampe reste « éteinte » (`enable` = 0).
+- **Chevauchement des deux alarmes** (alarme 1 à 20:47, alarme 2 à 20:48, levers de 2 min) ✔ :
+  - un seul lever de soleil à la fois : celui de l'alarme 2, qui aurait dû commencer pendant celui de l'alarme 1, est ignoré (aucun `C6 02`) ;
+  - quand l'alarme 2 sonne (`C7 02`), elle prend la main : l'état passe de `01 01` à `01 02`, et l'alarme 1 ne resonne pas (encore rien 7 minutes plus tard, pour un snooze de 5 min) ;
+  - une alarme peut sonner plus de 6 minutes sans s'arrêter d'elle-même.
 - Arrêt (`29` → `C9`) : répond `01` quand une alarme était en cours ✔.
