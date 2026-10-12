@@ -147,13 +147,21 @@ SWEETDAWN_SOCKET=/tmp/sweetdawn.sock sweetdawn-ctl status
 
 `mqtt/sweetdawn_mqtt.py` connects the service to an MQTT broker and announces the AML005 to Home Assistant through MQTT discovery:
 
-- **Light** and **Mood** lights (brightness, color, scenes as effects);
-- **Radio** switch, volume, preset, frequency, seek and tune buttons;
-- **Alarms**: on/off, time, each day, tone, volume, snooze, sunrise; stop and snooze buttons;
-- **Next alarm** timestamps: Home Assistant shows "in 11 hours" and can use them in automations;
-- **Alarm**: three sensors, `Réveil` for both alarms and `Réveil 1` / `Réveil 2` for each, with `off`, `sunrise` (sunrise, or snooze waiting to ring again) or `on` (ringing), updated live;
-- **AML clock**: shows the device time and lets you set another one;
-- **Settings**, and a **Bluetooth connectivity** sensor.
+Entity names start with their group, so related entities stay together in Home Assistant lists (shown as "AML005 Alarm 1 time", for example):
+
+| Group | Entities |
+|---|---|
+| Alarm | `Alarm state`, `Alarm next`, `Alarm stop`, `Alarm snooze` |
+| Alarm 1, Alarm 2 | `Alarm 1` (on/off), `Alarm 1 state`, `Alarm 1 next`, `Alarm 1 time`, `Alarm 1 day 1 Monday` … `day 7 Sunday`, `Alarm 1 snooze`, `Alarm 1 tone`, `Alarm 1 tone volume`, `Alarm 1 sunrise`, `Alarm 1 sunrise duration`, `Alarm 1 sunrise brightness` |
+| Light | `Light` (brightness), `Light sunset`, `Light sunset duration`, `Light fade` |
+| Mood | `Mood` (brightness, color, scenes as effects), `Mood timer`, `Mood timer duration` |
+| Radio | `Radio`, `Radio volume`, `Radio preset`, `Radio frequency`, `Radio seek next` / `previous`, `Radio tune up` / `down`, `Radio sleep timer`, `Radio sleep timer duration` |
+| Clock | `Clock` (shows the AML time and sets another one), `Clock mode`, `Clock sync`, `Clock offset` |
+| Display | `Display brightness`, `Display time format` |
+| Others | `Sound button beep`, `Speaker`, `Bluetooth connection` |
+
+- `… state` sensors: `off`, `sunrise` (sunrise, or snooze waiting to ring again) or `on` (ringing). `Alarm state` covers both alarms, which can overlap. Updated live: while an alarm is active, the service reads its state every second.
+- `… next` sensors: timestamp of the next ring; Home Assistant shows "in 11 hours" and can use it in automations.
 
 Commands from Home Assistant go through the service like any other client. Install it:
 
@@ -241,7 +249,7 @@ After `subscribe`, the service pushes events on the same connection, between res
 | `light_changed` | The light or mood light changed on the device (button, gesture sensor, timer) | Both states, as returned by `Light` and `Mood` |
 | `timer_ended` | A sleep timer ended | `timer`: `light`, `mood`, `radio` or `music` |
 
-Both alarms are tracked separately, since they can overlap (one ringing during the other's sunrise). The AML005 reports the sunrise and the ringing itself, but nothing when it is tapped (snooze) or stopped with its button. While an alarm is active, the service reads its state every 10 s. When the ringing stops, the state becomes `snoozed` for the alarm's snooze duration: if it does not ring again, it was stopped, and the state returns to `idle`. A stop sent through SweetDawn (`Alarm/Stop`) is known, and gives `idle` at once.
+Both alarms are tracked separately, since they can overlap (one ringing during the other's sunrise). The AML005 reports the sunrise and the ringing itself, but nothing when it is tapped (snooze) or stopped with its button. While an alarm is active, the service reads its state every second. When the ringing stops, the state becomes `snoozed` for the alarm's snooze duration: if it does not ring again, it was stopped, and the state returns to `idle`. A stop sent through SweetDawn (`Alarm/Stop`) is known, and gives `idle` at once.
 
 #### Error codes
 

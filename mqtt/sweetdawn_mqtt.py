@@ -296,7 +296,11 @@ def button(key, name, path, group=None, **config):
 
 
 def day_switch(number_, bit, day):
-    """Un jour d'une alarme : un bit du masque Days (bit 0 = dimanche)."""
+    """
+    Un jour d'une alarme : un bit du masque Days (bit 0 = dimanche).
+    Nommé « Alarm 1 day 1 Monday » ... « day 7 Sunday » : numérotés dans
+    l'ordre de la semaine pour se suivre dans une liste triée.
+    """
     def get(cache):
         days = value_in(cache, "Alarm", str(number_), "days")
         return None if days is None else on_off(days & (1 << bit))
@@ -309,7 +313,7 @@ def day_switch(number_, bit, day):
         return [(f"Alarm/{number_}/Days", str(days))]
 
     return Entity("switch", f"alarm{number_}_day{bit}",
-                  f"Alarme {number_} {day}", "Alarm",
+                  f"Alarm {number_} day {(bit + 6) % 7 + 1} {day}", "Alarm",
                   {"": Channel(get=get, set=set_)},
                   {"payload_on": "ON", "payload_off": "OFF",
                    "entity_category": "config"})
@@ -329,7 +333,7 @@ CHOICES = {
                    "Pulse", "Wave", "Chill", "Action", "Forest", "Summer"],
 }
 
-DAYS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"]
+DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 # Réveil en trois états, à partir de l'état détaillé (événement alarm_state).
 # Un snooze compte comme « sunrise » : l'AML rallume la lampe en attendant
@@ -348,7 +352,7 @@ def build_entities():
 
     # --- Lampe principale --------------------------------------------------
     # Même identifiant et même topic de découverte que l'ancien pont.
-    light = Entity("light", "light", "Lumière", "Light", {
+    light = Entity("light", "light", "Light", "Light", {
         "": Channel(
             get=lambda c: on_off(value_in(c, "Light", "enable")),
             set=lambda p, c: [("Light/Enable", bool_payload(p))],
@@ -362,14 +366,14 @@ def build_entities():
         unique_id="aml005_light",
         discovery_topic=f"{DISCOVERY_PREFIX}/light/aml005/config")
     entities.append(light)
-    entities.append(switch("light_sunset", "Coucher de soleil", "Light",
+    entities.append(switch("light_sunset", "Light sunset", "Light",
                            "Light/Sunset", ["sunset"], **config))
-    entities.append(number("light_sunset_duration", "Durée coucher de soleil",
+    entities.append(number("light_sunset_duration", "Light sunset duration",
                            "Light", "Light/Sunset duration", ["sunset_duration"],
                            1, 60, unit_of_measurement="min", **config))
 
     # --- Ambiance ------------------------------------------------------------
-    entities.append(Entity("light", "mood", "Ambiance", "Mood", {
+    entities.append(Entity("light", "mood", "Mood", "Mood", {
         "": Channel(
             get=lambda c: on_off(value_in(c, "Mood", "enable")),
             set=lambda p, c: [("Mood/Enable", bool_payload(p))],
@@ -389,45 +393,45 @@ def build_entities():
         ),
     }, {"brightness_scale": 100, "payload_on": "ON", "payload_off": "OFF",
         "on_command_type": "first", "effect_list": CHOICES["Mood/Scene"]}))
-    entities.append(switch("mood_timer", "Minuteur ambiance", "Mood",
+    entities.append(switch("mood_timer", "Mood timer", "Mood",
                            "Mood/Timer", ["timer"], **config))
-    entities.append(number("mood_timer_duration", "Durée minuteur ambiance",
+    entities.append(number("mood_timer_duration", "Mood timer duration",
                            "Mood", "Mood/Timer duration", ["timer_duration"],
                            1, 120, unit_of_measurement="min", **config))
 
     # --- Radio ---------------------------------------------------------------
     entities.append(switch("radio", "Radio", "Radio", "Radio/Enable",
                            ["enable"], icon="mdi:radio"))
-    entities.append(number("radio_volume", "Volume radio", "Radio",
+    entities.append(number("radio_volume", "Radio volume", "Radio",
                            "Radio/Volume", ["volume"], 1, 10,
                            icon="mdi:volume-high"))
-    entities.append(number("radio_channel", "Présélection radio", "Radio",
+    entities.append(number("radio_channel", "Radio preset", "Radio",
                            "Radio/Channel", ["channel"], 1, 10, mode="box",
                            icon="mdi:numeric"))
-    entities.append(Entity("sensor", "radio_frequency", "Fréquence radio",
+    entities.append(Entity("sensor", "radio_frequency", "Radio frequency",
                            "Radio", {"": Channel(
                                get=lambda c: text(value_in(c, "Radio", "frequency")))},
                            {"unit_of_measurement": "MHz",
                             "icon": "mdi:radio-tower"}))
     for key, name, path, icon in (
-            ("radio_seek_up", "Station suivante", "Radio/>>", "mdi:skip-next"),
-            ("radio_seek_down", "Station précédente", "Radio/<<", "mdi:skip-previous"),
-            ("radio_tune_up", "Fréquence +0,1", "Radio/>", "mdi:chevron-right"),
-            ("radio_tune_down", "Fréquence -0,1", "Radio/<", "mdi:chevron-left")):
+            ("radio_seek_up", "Radio seek next", "Radio/>>", "mdi:skip-next"),
+            ("radio_seek_down", "Radio seek previous", "Radio/<<", "mdi:skip-previous"),
+            ("radio_tune_up", "Radio tune up", "Radio/>", "mdi:chevron-right"),
+            ("radio_tune_down", "Radio tune down", "Radio/<", "mdi:chevron-left")):
         entities.append(button(key, name, path, group="Radio", icon=icon))
-    entities.append(switch("radio_sleep", "Arrêt programmé radio", "Radio",
+    entities.append(switch("radio_sleep", "Radio sleep timer", "Radio",
                            "Radio/Sleep timer", ["sleep_timer"], **config))
-    entities.append(number("radio_sleep_duration", "Durée arrêt radio", "Radio",
+    entities.append(number("radio_sleep_duration", "Radio sleep timer duration", "Radio",
                            "Radio/Timer duration", ["timer_duration"], 1, 60,
                            unit_of_measurement="min", **config))
 
     # --- Alarmes -------------------------------------------------------------
     for n in (1, 2):
         a = str(n)
-        entities.append(switch(f"alarm{n}", f"Alarme {n}", "Alarm",
+        entities.append(switch(f"alarm{n}", f"Alarm {n}", "Alarm",
                                f"Alarm/{n}/Enable", [a, "enable"],
                                icon="mdi:alarm"))
-        entities.append(Entity("text", f"alarm{n}_time", f"Alarme {n} heure",
+        entities.append(Entity("text", f"alarm{n}_time", f"Alarm {n} time",
                                "Alarm", {"": Channel(
                                    get=lambda c, a=a: text(value_in(c, "Alarm", a, "time")),
                                    set=lambda p, c, n=n: [(f"Alarm/{n}/Time", p)])},
@@ -435,37 +439,37 @@ def build_entities():
                                 "min": 5, "max": 5, "icon": "mdi:clock-outline"}))
         for bit, day in enumerate(DAYS):
             entities.append(day_switch(n, bit, day))
-        entities.append(select(f"alarm{n}_snooze", f"Alarme {n} snooze",
+        entities.append(select(f"alarm{n}_snooze", f"Alarm {n} snooze",
                                "Alarm", f"Alarm/{n}/Snooze", [a, "snooze"],
                                CHOICES["Alarm/1/Snooze"], **config))
-        entities.append(select(f"alarm{n}_tone", f"Alarme {n} sonnerie",
+        entities.append(select(f"alarm{n}_tone", f"Alarm {n} tone",
                                "Alarm", f"Alarm/{n}/Tone", [a, "tone"],
                                CHOICES["Alarm/1/Tone"], **config))
-        entities.append(number(f"alarm{n}_volume", f"Alarme {n} volume",
+        entities.append(number(f"alarm{n}_volume", f"Alarm {n} tone volume",
                                "Alarm", f"Alarm/{n}/Tone volume",
                                [a, "tone_volume"], 1, 10, **config))
-        entities.append(switch(f"alarm{n}_sunrise", f"Alarme {n} lever de soleil",
+        entities.append(switch(f"alarm{n}_sunrise", f"Alarm {n} sunrise",
                                "Alarm", f"Alarm/{n}/Sunrise", [a, "sunrise"],
                                **config))
         entities.append(number(f"alarm{n}_sunrise_duration",
-                               f"Alarme {n} durée lever de soleil", "Alarm",
+                               f"Alarm {n} sunrise duration", "Alarm",
                                f"Alarm/{n}/Sunrise duration",
                                [a, "sunrise_duration"], 2, 60,
                                unit_of_measurement="min", **config))
         entities.append(number(f"alarm{n}_sunrise_brightness",
-                               f"Alarme {n} luminosité lever de soleil", "Alarm",
+                               f"Alarm {n} sunrise brightness", "Alarm",
                                f"Alarm/{n}/Sunrise brightness",
                                [a, "sunrise_brightness"], 1, 100,
                                unit_of_measurement="%", **config))
     # Prochains déclenchements : Home Assistant affiche « dans 11 heures ».
     # Inconnus tant que SweetDawn n'a pas réglé l'heure de l'AML.
     timestamp = {"device_class": "timestamp", "icon": "mdi:alarm"}
-    entities.append(Entity("sensor", "next_alarm", "Prochaine alarme", "Alarm",
+    entities.append(Entity("sensor", "next_alarm", "Alarm next", "Alarm",
                            {"": Channel(get=lambda c: or_none(next_alarm(c)))},
                            dict(timestamp)))
     for n in ("1", "2"):
         entities.append(Entity("sensor", f"alarm{n}_next",
-                               f"Alarme {n} prochain déclenchement", "Alarm",
+                               f"Alarm {n} next", "Alarm",
                                {"": Channel(get=lambda c, n=n: or_none(
                                    value_in(c, "Alarm", n, "next")))},
                                dict(timestamp)))
@@ -477,42 +481,42 @@ def build_entities():
     # chacune.
     phase = {"device_class": "enum", "options": ["off", "sunrise", "on"],
              "icon": "mdi:weather-sunset-up"}
-    entities.append(Entity("sensor", "alarm_phase", "Réveil", "status",
+    entities.append(Entity("sensor", "alarm_phase", "Alarm state", "status",
                            {"": Channel(get=lambda c: or_none(ALARM_PHASES.get(
                                value_in(c, "status", "alarm_state", "state"))))},
                            dict(phase)))
     for n in ("1", "2"):
-        entities.append(Entity("sensor", f"alarm{n}_phase", f"Réveil {n}", "status",
+        entities.append(Entity("sensor", f"alarm{n}_phase", f"Alarm {n} state", "status",
                                {"": Channel(get=lambda c, n=n: or_none(ALARM_PHASES.get(
                                    value_in(c, "status", "alarm_state", "alarms", n))))},
                                dict(phase)))
-    entities.append(button("alarm_stop", "Arrêter l'alarme", "Alarm/Stop",
+    entities.append(button("alarm_stop", "Alarm stop", "Alarm/Stop",
                            icon="mdi:alarm-off"))
-    entities.append(button("alarm_snooze", "Snooze", "Alarm/Snooze",
+    entities.append(button("alarm_snooze", "Alarm snooze", "Alarm/Snooze",
                            icon="mdi:alarm-snooze"))
 
     # --- Réglages ------------------------------------------------------------
     # Lus dans "status" : aucune requête Bluetooth.
-    entities.append(select("display_brightness", "Luminosité affichage",
+    entities.append(select("display_brightness", "Display brightness",
                            "status", "Settings/Display brightness",
                            ["settings", "display_brightness"],
                            CHOICES["Settings/Display brightness"], **config))
-    entities.append(select("display_time", "Format heure", "status",
+    entities.append(select("display_time", "Display time format", "status",
                            "Settings/Display time", ["settings", "display_time"],
                            CHOICES["Settings/Display time"], **config))
-    entities.append(select("time_mode", "Mode heure", "status",
+    entities.append(select("time_mode", "Clock mode", "status",
                            "Settings/Time", ["settings", "time"],
                            CHOICES["Settings/Time"], **config))
-    entities.append(switch("feedback", "Bip des boutons", "status",
+    entities.append(switch("feedback", "Sound button beep", "status",
                            "Settings/Feedback", ["settings", "feedback"], **config))
-    entities.append(switch("fade", "Fondu lumineux", "status",
+    entities.append(switch("fade", "Light fade", "status",
                            "Settings/Fade", ["settings", "fade"], **config))
-    entities.append(button("sync_time", "Mettre à l'heure", "Settings/Sync time",
+    entities.append(button("sync_time", "Clock sync", "Settings/Sync time",
                            entity_category="config", icon="mdi:clock-check"))
     # Heure de l'AML : affiche l'heure calculée (heure du Raspberry Pi plus
     # l'écart connu, recalculée chaque seconde, publiée à chaque nouvelle
     # minute : live) et permet d'en choisir une autre. Vide si inconnue.
-    entities.append(Entity("text", "set_time", "Heure de l'AML", "status", {
+    entities.append(Entity("text", "set_time", "Clock", "status", {
         "": Channel(get=lambda c: aml_clock(c) or "",
                     set=lambda p, c: [("Settings/Set time", p)]),
     }, {"pattern": r"^$|^(\d{4}-\d{2}-\d{2} )?([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$",
@@ -520,7 +524,7 @@ def build_entities():
 
     # Écart entre l'horloge de l'AML et celle du Raspberry Pi (0 = à
     # l'heure) ; inconnu en mode manuel ou avant la première mise à l'heure.
-    entities.append(Entity("sensor", "clock_offset", "Écart horloge AML", "status",
+    entities.append(Entity("sensor", "clock_offset", "Clock offset", "status",
                            {"": Channel(get=lambda c: or_none(
                                value_in(c, "status", "clock", "offset_s")))},
                            {"unit_of_measurement": "s",
@@ -530,14 +534,14 @@ def build_entities():
 
     # --- Haut-parleur Bluetooth ----------------------------------------------
     # L'état n'est pas lisible : Home Assistant le suppose (mode optimiste).
-    entities.append(Entity("switch", "speaker", "Haut-parleur Bluetooth", None, {
+    entities.append(Entity("switch", "speaker", "Speaker", None, {
         "": Channel(set=lambda p, c: [("Media Player/Enable", bool_payload(p))]),
     }, {"payload_on": "ON", "payload_off": "OFF", "optimistic": True,
         "icon": "mdi:speaker-bluetooth"}))
 
     # --- Liaison -------------------------------------------------------------
     # Disponible même quand l'AML est déconnecté : c'est elle qui le dit.
-    entities.append(Entity("binary_sensor", "connected", "Connexion Bluetooth",
+    entities.append(Entity("binary_sensor", "connected", "Bluetooth connection",
                            "status", {"": Channel(
                                get=lambda c: on_off(value_in(c, "status", "connected")))},
                            {"device_class": "connectivity",

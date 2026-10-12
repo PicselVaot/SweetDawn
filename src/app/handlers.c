@@ -919,7 +919,7 @@ static int ecrire_haut_parleur(const Command *command, int argc,
  * demandé par Alarm/Stop, lui, est connu : « idle » tout de suite.
  */
 
-#define ALARM_WATCH_MS 10000
+#define ALARM_WATCH_MS 1000
 #define EVENT_QUEUE_SIZE 16
 
 /* Marge après la fin du snooze avant de conclure à un arrêt. */
