@@ -1,0 +1,26 @@
+# SweetDawn — pont MQTT vers Home Assistant
+#
+# Modèle : @USER@ et @DIR@ sont remplacés par `make install-mqtt`.
+# Configuration : config/mqtt.json (voir config/mqtt.example.json).
+#
+#   journalctl -u sweetdawn-mqtt -f    messages en direct
+
+[Unit]
+Description=SweetDawn - pont MQTT (Home Assistant)
+# Le pont parle au service : le démarrer après lui.
+After=sweetdawn.service network-online.target
+Wants=sweetdawn.service network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@DIR@
+ExecStart=/usr/bin/python3 @DIR@/mqtt/sweetdawn_mqtt.py
+# Messages Python visibles immédiatement dans le journal.
+Environment=PYTHONUNBUFFERED=1
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

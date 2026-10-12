@@ -12,8 +12,9 @@ bin/
 # Configuration locale et données sensibles
 # ============================================================
 
-# Configuration réelle des appareils AML
+# Configuration réelle des appareils AML et du broker MQTT
 config/aml.json
+config/mqtt.json
 
 # Fichiers locaux de configuration
 .env

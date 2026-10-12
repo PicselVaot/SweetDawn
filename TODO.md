@@ -15,10 +15,12 @@ Turn SweetDawn into a persistent background service that centralizes Bluetooth c
 | [x] | 3. AML Connection | Integrate Bluetooth connection management into the service | SweetDawn exclusively owns the connection and handles disconnections |
 | [x] | 4. Command Handling | Allow clients to execute AML commands through IPC | The CLI sends a command to the service and receives the corresponding result |
 | [ ] | 5. Events and State | Notify connected clients of state changes | In-memory state is updated when relevant frames are received, and clients are notified of changes |
-| [ ] | 6. MQTT Integration | Expose commands and device state through MQTT | Incoming commands are handled by SweetDawn, and device state is published to configured topics |
+| [x] | 6. MQTT Integration | Expose commands and device state through MQTT | Incoming commands are handled by SweetDawn, and device state is published to configured topics |
 | [ ] | 7. systemd Service | Ensure SweetDawn runs continuously | Automatic startup, graceful shutdown, accessible logs, and configurable restart policy |
 | [ ] | 8. Documentation | Document installation, configuration, and usage | README, example configuration, and troubleshooting instructions are up to date |
 
+> **Step 6 note:** the bridge (`mqtt/sweetdawn_mqtt.py`) polls the device every 30 s. Once step 5 delivers events, it should publish state changes as they happen instead.
+>
 > **Step 4 note:** not every unacknowledged command (mood color, scene, volumes...) has been checked for its visible effect on the device yet; see docs/PROTOCOL.md for what is verified.
 >
 > **Step 7 status:** the systemd service is installed and running (`make install-service`), with logs in the journal and restart on failure. Remaining before checking it off: confirm it comes back after a reboot of the Raspberry Pi.

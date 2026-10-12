@@ -17,13 +17,13 @@ The project is designed to run as a persistent background service, allowing mult
 - **Local IPC** — Serve multiple clients over a Unix domain socket with newline-delimited JSON.
 - **Command-line client** — `sweetdawn-ctl Light/Enable true`, answered in about 100 ms through the open connection.
 - **systemd integration** — Start the service at boot and restart it on failure.
+- **Home Assistant (MQTT)** — Every function of the device appears automatically in Home Assistant: light, mood light, radio, alarms, settings.
 - **Device control** — Read and change settings, alarms, light, mood light, radio and Bluetooth speaker through IPC.
 - **Automated tests** — Test protocol handling, configuration, state management, command registration, link supervision, and IPC.
 
 ### Planned
 
 - **State events** — Notify connected clients when the device state changes.
-- **MQTT integration** — Publish device state and accept commands from a home automation system.
 - **Graphical interface** — Provide a GUI client alongside the command-line interface.
 
 > SweetDawn is under active development. Features listed under *Planned* are not implemented yet.
@@ -176,6 +176,22 @@ sweetdawn-ctl commands                    # every available command
 
 Exit code: 0 on success, 1 if the command was refused or failed, 2 if the service is unreachable. Set `SWEETDAWN_SOCKET` to use another socket path.
 
+### MQTT bridge (Home Assistant)
+
+`mqtt/sweetdawn_mqtt.py` connects the service to an MQTT broker and announces every function of the AML005 to Home Assistant (MQTT discovery): lights, radio, alarms with their days, settings, and a Bluetooth connectivity sensor. Commands from Home Assistant go through the service like any other client.
+
+Requires `python3-paho-mqtt`. Configure it from the example, then install it as a systemd service:
+
+```bash
+cp config/mqtt.example.json config/mqtt.json   # broker address, credentials file
+make install-mqtt
+journalctl -u sweetdawn-mqtt -f                # live log
+```
+
+`config/mqtt.json` points to a credentials file containing `{"user": "...", "passw": "..."}`. Both stay out of Git.
+
+The bridge reads the device state every `poll_seconds` (30 s by default) and one second after each command, since the AML005 does not acknowledge every command. Topics live under `sweetdawn/aml005/`.
+
 ### IPC protocol
 
 Each message is a single JSON object terminated by a newline (`\n`), at most 4096 bytes long.
@@ -276,9 +292,10 @@ src/
     └── protocol.c / .h      #   Frame format, building and parsing
 
 test/                        # One test program per module (fake_aml.c: fake device)
+mqtt/sweetdawn_mqtt.py       # MQTT bridge to Home Assistant
 docs/COMMANDS.md             # Every command, with values and limits
 docs/PROTOCOL.md             # AML005 Bluetooth protocol reference
-systemd/sweetdawn.service    # systemd unit template (make install-service)
+systemd/                     # systemd unit templates (make install-service, install-mqtt)
 config/                      # Example configuration (local aml.json is ignored)
 ```
 
@@ -312,7 +329,7 @@ SweetDawn follows a few core principles:
 - [x] Device control commands over IPC
 - [ ] State change events
 - [x] CLI client communicating with the service
-- [ ] MQTT integration
+- [x] MQTT integration
 - [ ] Graphical client
 - [x] systemd service integration
 

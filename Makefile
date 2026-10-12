@@ -6,6 +6,8 @@
 #  make test               Lance les tests automatiques (aucun Bluetooth requis).
 #  make install-service    Installe et démarre le service systemd (sudo).
 #  make uninstall-service  Arrête et retire le service systemd (sudo).
+#  make install-mqtt       Installe et démarre le pont MQTT (sudo).
+#  make uninstall-mqtt     Arrête et retire le pont MQTT (sudo).
 #  make clean              Supprime tout ce qui a été compilé (le dossier bin/).
 #
 #  Les programmes produits :
@@ -81,7 +83,8 @@ TESTS := $(BIN)/test_protocol \
          $(BIN)/test_handlers \
          $(BIN)/test_ipc
 
-.PHONY: all test clean rebuild install-service uninstall-service
+.PHONY: all test clean rebuild install-service uninstall-service \
+        install-mqtt uninstall-mqtt
 
 all: $(PROGRAMS) $(TESTS)
 
@@ -192,6 +195,25 @@ install-service: $(BIN)/sweetdawn-service $(BIN)/sweetdawn-ctl
 uninstall-service:
 	-sudo systemctl disable --now sweetdawn
 	sudo rm -f $(UNIT) /usr/local/bin/sweetdawn-ctl
+	sudo systemctl daemon-reload
+
+# Pont MQTT (mqtt/sweetdawn_mqtt.py) : nécessite config/mqtt.json et le
+# paquet python3-paho-mqtt. Après une modification du script :
+# sudo systemctl restart sweetdawn-mqtt.
+MQTT_UNIT := /etc/systemd/system/sweetdawn-mqtt.service
+
+install-mqtt:
+	@test -f config/mqtt.json || \
+	    { echo "config/mqtt.json manquant (voir config/mqtt.example.json)"; exit 1; }
+	sed -e 's|@USER@|$(USER)|g' -e 's|@DIR@|$(CURDIR)|g' \
+	    systemd/sweetdawn-mqtt.service | sudo tee $(MQTT_UNIT) > /dev/null
+	sudo systemctl daemon-reload
+	sudo systemctl enable --now sweetdawn-mqtt
+	@echo "Pont MQTT installé : journalctl -u sweetdawn-mqtt -f"
+
+uninstall-mqtt:
+	-sudo systemctl disable --now sweetdawn-mqtt
+	sudo rm -f $(MQTT_UNIT)
 	sudo systemctl daemon-reload
 
 rebuild: clean
