@@ -151,7 +151,7 @@ SWEETDAWN_SOCKET=/tmp/sweetdawn.sock sweetdawn-ctl status
 - **Radio** switch, volume, preset, frequency, seek and tune buttons;
 - **Alarms**: on/off, time, each day, tone, volume, snooze, sunrise; stop and snooze buttons;
 - **Next alarm** timestamps: Home Assistant shows "in 11 hours" and can use them in automations;
-- **Alarm**: three-state sensors (`off`, `en cours` during the sunrise or a snooze, `on` while ringing) for each alarm and for both together, the detailed state (`repos`, `lever de soleil`, `sonne`, `snooze`) and an **alarm ringing** binary sensor, all updated live;
+- **Alarm**: three sensors, `Réveil` for both alarms and `Réveil 1` / `Réveil 2` for each, with `off`, `sunrise` (sunrise, or snooze waiting to ring again) or `on` (ringing), updated live;
 - **AML clock**: shows the device time and lets you set another one;
 - **Settings**, and a **Bluetooth connectivity** sensor.
 

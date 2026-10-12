@@ -87,6 +87,13 @@ DEVICE = {
 RETIRED_DISCOVERY_TOPICS = [
     f"{DISCOVERY_PREFIX}/sensor/aml005_aml_time/config",   # fusionnée dans set_time
     f"{DISCOVERY_PREFIX}/binary_sensor/aml005_alarm_active/config",  # devenu alarm_phase
+    f"{DISCOVERY_PREFIX}/sensor/aml005_alarm_state/config",          # remplacé par alarm_phase
+    f"{DISCOVERY_PREFIX}/binary_sensor/aml005_alarm_ringing/config", # remplacé par alarm_phase
+] + [
+    # Capteurs de lever de soleil d'un essai abandonné.
+    f"{DISCOVERY_PREFIX}/{component}/aml005_{key}/config"
+    for key in ("sunrise", "sunrise1", "sunrise2")
+    for component, key in (("binary_sensor", key), ("sensor", key + "_progress"))
 ]
 
 
@@ -324,20 +331,14 @@ CHOICES = {
 
 DAYS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"]
 
-# Réveil en trois états, à partir de l'état détaillé (alarm_state).
+# Réveil en trois états, à partir de l'état détaillé (événement alarm_state).
+# Un snooze compte comme « sunrise » : l'AML rallume la lampe en attendant
+# de resonner.
 ALARM_PHASES = {
     "idle": "off",
-    "sunrise": "en cours",
-    "snoozed": "en cours",
+    "sunrise": "sunrise",
+    "snoozed": "sunrise",
     "ringing": "on",
-}
-
-# États du réveil (événement alarm_state), tels qu'affichés dans Home Assistant.
-ALARM_STATES = {
-    "idle": "repos",
-    "sunrise": "lever de soleil",
-    "ringing": "sonne",
-    "snoozed": "snooze",
 }
 
 
@@ -469,20 +470,12 @@ def build_entities():
                                    value_in(c, "Alarm", n, "next")))},
                                dict(timestamp)))
 
-    # État du réveil, mis à jour en direct par les événements du service.
-    # « snooze » après une sonnerie qui cesse : l'AML ne permet pas de
-    # distinguer un snooze d'un arrêt au bouton (voir app/handlers.c).
-    entities.append(Entity("sensor", "alarm_state", "État du réveil", "status",
-                           {"": Channel(get=lambda c: or_none(ALARM_STATES.get(
-                               value_in(c, "status", "alarm_state", "state"))))},
-                           {"device_class": "enum",
-                            "options": list(ALARM_STATES.values()),
-                            "icon": "mdi:alarm-note"}))
-    # Réveil en trois états : off (rien), en cours (lever de soleil, ou
-    # snooze en attendant de resonner), on (il sonne). « Réveil » résume
-    # les deux alarmes, qui peuvent se chevaucher ; « Réveil 1 » et
-    # « Réveil 2 » les suivent chacune.
-    phase = {"device_class": "enum", "options": ["off", "en cours", "on"],
+    # Réveil en trois états : off (rien), sunrise (lever de soleil, ou
+    # snooze en attendant de resonner), on (il sonne). Mis à jour en direct
+    # par les événements du service. « Réveil » résume les deux alarmes,
+    # qui peuvent se chevaucher ; « Réveil 1 » et « Réveil 2 » les suivent
+    # chacune.
+    phase = {"device_class": "enum", "options": ["off", "sunrise", "on"],
              "icon": "mdi:weather-sunset-up"}
     entities.append(Entity("sensor", "alarm_phase", "Réveil", "status",
                            {"": Channel(get=lambda c: or_none(ALARM_PHASES.get(
@@ -493,13 +486,6 @@ def build_entities():
                                {"": Channel(get=lambda c, n=n: or_none(ALARM_PHASES.get(
                                    value_in(c, "status", "alarm_state", "alarms", n))))},
                                dict(phase)))
-    entities.append(Entity("binary_sensor", "alarm_ringing", "Réveil sonne", "status",
-                           {"": Channel(get=lambda c: on_off(
-                               value_in(c, "status", "alarm_state", "state") == "ringing"
-                               if value_in(c, "status", "alarm_state") else None))},
-                           {"payload_on": "ON", "payload_off": "OFF",
-                            "icon": "mdi:alarm-light"}))
-
     entities.append(button("alarm_stop", "Arrêter l'alarme", "Alarm/Stop",
                            icon="mdi:alarm-off"))
     entities.append(button("alarm_snooze", "Snooze", "Alarm/Snooze",
