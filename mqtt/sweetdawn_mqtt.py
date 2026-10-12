@@ -298,7 +298,8 @@ def build_entities():
             get=lambda c: text(value_in(c, "Light", "brightness")),
             set=lambda p, c: [("Light/Brightness", int_payload(p))],
         ),
-    }, {"brightness_scale": 100, "payload_on": "ON", "payload_off": "OFF"},
+    }, {"brightness_scale": 100, "payload_on": "ON", "payload_off": "OFF",
+        "on_command_type": "first"},
         unique_id="aml005_light",
         discovery_topic=f"{DISCOVERY_PREFIX}/light/aml005/config")
     entities.append(light)
@@ -328,7 +329,7 @@ def build_entities():
             set=lambda p, c: [("Mood/Scene", p)],
         ),
     }, {"brightness_scale": 100, "payload_on": "ON", "payload_off": "OFF",
-        "effect_list": CHOICES["Mood/Scene"]}))
+        "on_command_type": "first", "effect_list": CHOICES["Mood/Scene"]}))
     entities.append(switch("mood_timer", "Minuteur ambiance", "Mood",
                            "Mood/Timer", ["timer"], **config))
     entities.append(number("mood_timer_duration", "Durée minuteur ambiance",
@@ -558,9 +559,25 @@ class Bridge:
 
     # --- Service (fil principal) ---------------------------------------------
 
+    def already_on(self, entity):
+        """
+        Une lampe est-elle déjà allumée ? (relue à l'instant, pas en cache :
+        elle a pu être éteinte au bouton depuis la dernière relecture.)
+        """
+        self.refresh(entity.group)
+        return value_in(self.cache, entity.group, "enable") is True
+
     def execute(self, route, payload):
         entity, channel_name = route
         channel = entity.channels[channel_name]
+
+        # Rallumer une lampe déjà allumée n'est pas sans effet : l'ambiance
+        # repart sur la scène Rainbow, ce qui écraserait la scène, la
+        # couleur ou la luminosité que Home Assistant envoie juste après
+        # son « ON » (on_command_type: first).
+        if (entity.component == "light" and channel_name == "" and
+                payload == "ON" and self.already_on(entity)):
+            return
 
         try:
             for command, value in channel.set(payload, self.cache):

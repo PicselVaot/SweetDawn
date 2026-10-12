@@ -85,6 +85,11 @@ Exemples : du lundi au vendredi = 2 + 4 + 8 + 16 + 32 = **62** ; le week-end = 1
 | `Mood/Timer` | `true`, `false` | Minuteur d'extinction |
 | `Mood/Timer duration` | 1 à 120 | Durée du minuteur, en minutes |
 
+À savoir :
+
+- **Allumer l'ambiance lance toujours la scène `Rainbow`**, même si elle est déjà allumée. Pour une autre scène ou une couleur, l'envoyer **après** `Mood/Enable true`.
+- La scène `Off` n'éteint pas l'ambiance : elle arrête l'animation et affiche la couleur fixe (`Mood/Color`).
+
 ## Radio — radio FM
 
 | Commande | Valeur | Effet |

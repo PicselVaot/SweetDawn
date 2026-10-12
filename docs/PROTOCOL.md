@@ -88,6 +88,8 @@ Premier octet des commandes : la cible, `01` = Light (lampe principale), `02` = 
 
 - Réponse de lecture ✔ : cible, enable, luminosité, minuteur actif, durée. Pour Mood seulement, elle continue avec R, G, B, scène (9 octets en tout, 5 pour Light).
 - Pour Light, le minuteur est le « coucher de soleil » (extinction progressive).
+- Allumer Mood (`37 02`) relance la scène 2 (Rainbow), même s'il était déjà allumé ✔. L'application d'origine en tient compte.
+- Scène 0 (Off) = couleur fixe, sans animation.
 - Scènes : 0 Off, 1 Random, 2 Rainbow, 3 Rainbow Slow, 4 Fusion, 5 Pulse, 6 Wave, 7 Chill, 8 Action, 9 Forest, 10 Summer.
 
 ### Radio FM
