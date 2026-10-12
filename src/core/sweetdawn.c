@@ -9,9 +9,11 @@
  *   1. Temps            : horloge monotone, remplaçable par les tests.
  *   2. Supervision      : reconnexion avec attente croissante, abandon
  *                         d'une liaison morte.
- *   3. Échanges         : une requête, une réponse ; lecture du statut
+ *   3. Événements       : messages spontanés de l'AML, transmis au
+ *                         gestionnaire enregistré.
+ *   4. Échanges         : une requête, une réponse ; lecture du statut
  *                         et des paramètres.
- *   4. API publique     : sweetdawn_request, init, connect, refresh,
+ *   5. API publique     : sweetdawn_request, init, connect, refresh,
  *                         tick, accesseurs.
  *
  * Tout s'exécute dans un seul fil : le service appelle sweetdawn_tick()
@@ -141,6 +143,87 @@ static void traiter_echec_liaison(SweetDawn *app, int code)
 }
 
 /* ------------------------------------------------------------------------- */
+/* Messages spontanés                                                        */
+/* ------------------------------------------------------------------------- */
+
+/* Codes que l'AML envoie de lui-même (voir aml/protocol.h). */
+static bool est_evenement(uint8_t code)
+{
+    switch (code) {
+    case AML_EVT_SUNRISE_START:
+    case AML_EVT_ALARM_RING:
+    case AML_EVT_LIGHT_REFRESH:
+    case AML_EVT_LIGHT_TIMER_END:
+    case AML_EVT_MOOD_TIMER_END:
+    case AML_EVT_RADIO_TIMER_END:
+    case AML_EVT_MUSIC_TIMER_END:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/*
+ * Transmet une trame reçue au gestionnaire si c'est un message
+ * spontané. Retourne false si ce n'en est pas un.
+ */
+static bool transmettre_evenement(
+    SweetDawn *app,
+    const uint8_t *frame,
+    size_t length
+)
+{
+    /* Enveloppe : 8 octets avant les données, 4 après. */
+    if (length < AML_FRAME_DATA_OFFSET + 4 ||
+        frame[2] != AML_FRAME_TYPE_RESPONSE ||
+        !est_evenement(frame[AML_FRAME_CODE_OFFSET]))
+        return false;
+
+    if (app->on_event != NULL) {
+        app->on_event(
+            app->event_context,
+            frame[AML_FRAME_CODE_OFFSET],
+            &frame[AML_FRAME_DATA_OFFSET],
+            length - AML_FRAME_DATA_OFFSET - 4
+        );
+    }
+
+    return true;
+}
+
+/*
+ * Lit, sans attendre, les trames déjà arrivées et transmet les messages
+ * spontanés. Les autres (réponse tardive à une requête abandonnée...)
+ * sont ignorées. Une liaison perdue est détectée ici aussi.
+ */
+static void lire_evenements(SweetDawn *app)
+{
+    uint8_t frame[RESPONSE_BUFFER_SIZE];
+    size_t length = 0;
+
+    /* Borné : un AML bavard ne doit pas bloquer la boucle du service. */
+    for (int i = 0; i < 16 && app->connected; i++) {
+        int code = aml_receive(&app->connection, frame, sizeof(frame),
+                               &length, 0);
+
+        if (code == AML_ERR_TIMEOUT)
+            return;
+
+        if (code != 0) {
+            traiter_echec_liaison(app, code);
+            return;
+        }
+
+        if (!transmettre_evenement(app, frame, length)) {
+            fprintf(stderr,
+                    "SweetDawn : trame non sollicitée ignorée (code 0x%02X).\n",
+                    length > AML_FRAME_CODE_OFFSET
+                        ? frame[AML_FRAME_CODE_OFFSET] : 0);
+        }
+    }
+}
+
+/* ------------------------------------------------------------------------- */
 /* Échanges avec l'AML                                                       */
 /* ------------------------------------------------------------------------- */
 
@@ -172,7 +255,6 @@ static int envoyer_requete(
     uint8_t request[REQUEST_BUFFER_SIZE];
     size_t request_length = 0;
     int64_t deadline;
-    size_t discarded;
     int code;
 
     if (app == NULL || !app->initialized) {
@@ -208,17 +290,14 @@ static int envoyer_requete(
     }
 
     /*
-     * Repartir d'une liaison propre. Si l'AML envoie un jour des
-     * messages spontanés, ce message permettra de le remarquer.
+     * Traiter d'abord ce qui est déjà arrivé (messages spontanés,
+     * réponse tardive d'un échange précédent), pour partir d'une liaison
+     * propre sans rien perdre.
      */
-    discarded = aml_flush(&app->connection);
+    lire_evenements(app);
 
-    if (discarded > 0) {
-        fprintf(stderr,
-                "SweetDawn : %zu octet(s) non sollicité(s) ignoré(s) "
-                "avant la requête 0x%02X.\n",
-                discarded, request_code);
-    }
+    if (!app->connected)
+        return AML_ERR_DISCONNECTED;
 
     code = aml_send(&app->connection, request, request_length);
 
@@ -261,6 +340,10 @@ static int envoyer_requete(
             app->consecutive_failures = 0;
             return 0;
         }
+
+        /* L'AML a parlé de lui-même pendant qu'on attendait. */
+        if (transmettre_evenement(app, response, *response_length))
+            continue;
 
         fprintf(stderr,
                 "SweetDawn : trame inattendue ignorée "
@@ -578,8 +661,24 @@ void sweetdawn_tick(SweetDawn *app)
         return;
     }
 
-    if (now >= app->next_refresh_ms)
+    /* Messages spontanés arrivés depuis le tour précédent. */
+    lire_evenements(app);
+
+    if (app->connected && now >= app->next_refresh_ms)
         sweetdawn_refresh(app);
+}
+
+void sweetdawn_set_event_handler(
+    SweetDawn *app,
+    SweetDawnEventHandler handler,
+    void *context
+)
+{
+    if (app == NULL)
+        return;
+
+    app->on_event = handler;
+    app->event_context = context;
 }
 
 int64_t sweetdawn_now_ms(const SweetDawn *app)

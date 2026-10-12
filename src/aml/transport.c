@@ -284,6 +284,7 @@ int aml_receive(
 {
     uint8_t buffer[AML_RX_BUFFER_SIZE];
     long long deadline_ms = 0;
+    int polled = 0;
 
     if (connection == NULL ||
         connection->socket_fd < 0 ||
@@ -332,8 +333,17 @@ int aml_receive(
         if (timeout_ms >= 0) {
             long long remaining_ms = deadline_ms - monotonic_ms();
 
-            if (remaining_ms <= 0)
-                return AML_ERR_TIMEOUT;
+            /*
+             * Délai écoulé : abandonner, mais seulement après avoir
+             * regardé au moins une fois le socket. Ainsi timeout_ms = 0
+             * lit ce qui est déjà arrivé, sans jamais attendre.
+             */
+            if (remaining_ms <= 0) {
+                if (polled)
+                    return AML_ERR_TIMEOUT;
+
+                remaining_ms = 0;
+            }
 
             wait_ms = remaining_ms > 1000000 ? 1000000 : (int)remaining_ms;
         }
@@ -344,6 +354,8 @@ int aml_receive(
         };
 
         int ready = poll(&pfd, 1, wait_ms);
+
+        polled = 1;
 
         if (ready < 0) {
             if (errno == EINTR)

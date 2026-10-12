@@ -13,6 +13,7 @@
  *   sweetdawn-ctl Alarm/1/Time 07:30
  *   sweetdawn-ctl "Alarm/1/Tone volume" 5
  *   sweetdawn-ctl commands                  toutes les commandes
+ *   sweetdawn-ctl events                    suivre les événements en direct
  *
  * Les noms qui contiennent un espace doivent être entre guillemets.
  * Le socket est celui par défaut (ipc/ipc_server.h), ou celui de la
@@ -31,6 +32,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <json-c/json.h>
@@ -114,6 +116,83 @@ static int lire_ligne(int fd, char *buffer, size_t capacity)
     return -1;
 }
 
+/*
+ * Mode "events" : s'abonne, puis affiche chaque événement à son arrivée
+ * (une ligne horodatée par événement), jusqu'à Ctrl+C ou l'arrêt du
+ * service. Retourne le code de sortie.
+ */
+static int suivre_evenements(int fd)
+{
+    static const char subscribe[] =
+        "{\"type\":\"request\",\"id\":1,\"command\":\"subscribe\",\"args\":[]}\n";
+    struct timeval no_timeout = { 0 };
+    static char buffer[256 * 1024];
+    size_t used = 0;
+
+    if (envoyer_tout(fd, subscribe, sizeof(subscribe) - 1) != 0) {
+        fprintf(stderr, "Abonnement impossible.\n");
+        return 2;
+    }
+
+    /* Attendre aussi longtemps qu'il le faut entre deux événements. */
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &no_timeout, sizeof(no_timeout));
+
+    printf("En attente d'événements (Ctrl+C pour arrêter)...\n");
+    fflush(stdout);
+
+    for (;;) {
+        ssize_t count = recv(fd, buffer + used, sizeof(buffer) - 1 - used, 0);
+
+        if (count < 0 && errno == EINTR)
+            continue;
+
+        if (count <= 0) {
+            fprintf(stderr, "Connexion au service perdue.\n");
+            return 2;
+        }
+
+        used += (size_t)count;
+
+        /* Traiter chaque ligne complète ; garder la fin incomplète. */
+        char *start = buffer;
+        char *newline;
+
+        while ((newline = memchr(start, '\n', used - (size_t)(start - buffer))) != NULL) {
+            *newline = '\0';
+
+            struct json_object *message = json_tokener_parse(start);
+            struct json_object *type = NULL, *name = NULL, *data = NULL;
+
+            if (message != NULL &&
+                json_object_object_get_ex(message, "type", &type) &&
+                strcmp(json_object_get_string(type), "event") == 0) {
+                char stamp[16];
+                time_t now = time(NULL);
+
+                json_object_object_get_ex(message, "event", &name);
+                json_object_object_get_ex(message, "data", &data);
+                strftime(stamp, sizeof(stamp), "%H:%M:%S", localtime(&now));
+                printf("%s  %s  %s\n", stamp, json_object_get_string(name),
+                       json_object_to_json_string_ext(data, JSON_C_TO_STRING_PLAIN));
+                fflush(stdout);
+            }
+
+            if (message != NULL)
+                json_object_put(message);
+
+            start = newline + 1;
+        }
+
+        used -= (size_t)(start - buffer);
+        memmove(buffer, start, used);
+
+        if (used >= sizeof(buffer) - 1) {
+            fprintf(stderr, "Message trop long.\n");
+            return 2;
+        }
+    }
+}
+
 /* Affiche le résultat d'une réponse réussie. */
 static void afficher_resultat(struct json_object *result)
 {
@@ -139,8 +218,9 @@ int main(int argc, char **argv)
                 "  %s Light/Enable true\n"
                 "  %s Alarm/1/Time 07:30\n"
                 "  %s \"Alarm/1/Tone volume\" 5\n"
-                "  %s commands\n",
-                argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
+                "  %s commands\n"
+                "  %s events\n",
+                argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
         return 2;
     }
 
@@ -148,6 +228,20 @@ int main(int argc, char **argv)
 
     if (path == NULL || path[0] == '\0')
         path = IPC_DEFAULT_SOCKET;
+
+    if (argc == 2 && strcmp(argv[1], "events") == 0) {
+        int fd = connecter(path);
+
+        if (fd < 0) {
+            fprintf(stderr, "Service injoignable sur %s : %s\n",
+                    path, strerror(errno));
+            return 2;
+        }
+
+        int code = suivre_evenements(fd);
+        close(fd);
+        return code;
+    }
 
     /* La valeur part en texte : le service la valide comme telle. */
     struct json_object *request = json_object_new_object();

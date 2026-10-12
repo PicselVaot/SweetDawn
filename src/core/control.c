@@ -362,6 +362,25 @@ int control_alarm_write(SweetDawn *app, int number,
                     AML_RSP_ALARM, 0, 0, &reponse);
 }
 
+int control_alarm_status(SweetDawn *app, uint8_t *sunrise, uint8_t *ringing)
+{
+    Reponse reponse;
+
+    if (app == NULL || sunrise == NULL || ringing == NULL)
+        return AML_ERR_GENERIC;
+
+    int code = demander(app, AML_REQ_ALARM_STATUS, NULL, 0,
+                        AML_RSP_ALARM_STATUS, 0, 2, &reponse);
+
+    if (code != 0)
+        return code;
+
+    *sunrise = reponse.data[0];
+    *ringing = reponse.data[1];
+
+    return 0;
+}
+
 int control_alarm_stop(SweetDawn *app)
 {
     Reponse reponse;

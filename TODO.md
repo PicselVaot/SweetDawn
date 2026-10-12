@@ -10,23 +10,21 @@ Turn SweetDawn into a persistent background service that centralizes Bluetooth c
 
 | Status | Step | Objective | Acceptance Criteria |
 |---|---|---|---|
-| [ ] | 1. IPC Protocol | Define messages and communication between SweetDawn and its clients | Request, response, error, and event formats are documented |
+| [x] | 1. IPC Protocol | Define messages and communication between SweetDawn and its clients | Request, response, error, and event formats are documented |
 | [x] | 2. IPC Server | Implement a local server that accepts multiple clients | Multiple clients can connect and exchange messages without blocking the service |
 | [x] | 3. AML Connection | Integrate Bluetooth connection management into the service | SweetDawn exclusively owns the connection and handles disconnections |
 | [x] | 4. Command Handling | Allow clients to execute AML commands through IPC | The CLI sends a command to the service and receives the corresponding result |
-| [ ] | 5. Events and State | Notify connected clients of state changes | In-memory state is updated when relevant frames are received, and clients are notified of changes |
+| [x] | 5. Events and State | Notify connected clients of state changes | In-memory state is updated when relevant frames are received, and clients are notified of changes |
 | [x] | 6. MQTT Integration | Expose commands and device state through MQTT | Incoming commands are handled by SweetDawn, and device state is published to configured topics |
 | [ ] | 7. systemd Service | Ensure SweetDawn runs continuously | Automatic startup, graceful shutdown, accessible logs, and configurable restart policy |
 | [x] | 8. Documentation | Document installation, configuration, and usage | README, example configuration, and troubleshooting instructions are up to date |
 
 ### Status notes
 
-- **Step 1:** request, response, and error formats are implemented and documented in the README. The event format remains to be defined, together with step 5.
+- **Step 1:** request, response, error and event formats are implemented and documented in the README (IPC protocol).
 - **Step 4:** every AML command is reachable through IPC and tested against a simulated device. Verified on the device: all reads, acknowledged writes (settings, alarms, clock), light on/off, radio on/off, mood scenes and color. Not yet checked for their visible effect: volumes, timers, sunset, Bluetooth speaker.
-- **Step 5 (next):** the AML005 already sends unsolicited frames, listed in docs/PROTOCOL.md: alarm ringing (`C7`), sunrise starting (`C6`), light changed (`CA`), timers ending (`EB` to `EE`). Today the service discards them. The work:
-  - dispatch them in the service instead of discarding them, and update the in-memory state;
-  - define the event message format and push events to IPC clients (this also completes step 1);
-  - let the MQTT bridge publish changes as they happen instead of polling every 30 s, and expose "alarm ringing" to Home Assistant.
+- **Step 5:** unsolicited frames (`C6` sunrise, `C7` ringing, `CA` light changed, `EB`–`EE` timers) are dispatched by the service and pushed to subscribed clients as `alarm_state`, `light_changed` and `timer_ended` events. Snooze and stop send nothing: the alarm state is read every 10 s while an alarm is active. Verified on the device: ringing, snooze (tap), light changes by gesture. Limitation: a stop with the device button looks like a snooze until the snooze duration ends.
+- **Step 6:** the MQTT bridge subscribes to the service events (alarm state and light changes are live) and still polls every 30 s as a fallback.
 - **Step 7:** both services (`sweetdawn`, `sweetdawn-mqtt`) are installed, start at boot, restart on failure, and log to the journal. Remaining before checking it off: confirm they come back after a reboot of the Raspberry Pi.
 - **Step 8:** README rewritten with installation from scratch, usage, MQTT, IPC reference and troubleshooting; every command in docs/COMMANDS.md; protocol in docs/PROTOCOL.md.
 

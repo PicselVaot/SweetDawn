@@ -54,6 +54,24 @@
 #define SWEETDAWN_BACKOFF_MAX_MS      30000
 #define SWEETDAWN_MAX_FAILURES            3
 
+/*
+ * Message spontané reçu de l'AML (codes AML_EVT_* de aml/protocol.h) :
+ * alarme qui sonne, lever de soleil, éclairage changé, fin de minuteur.
+ *
+ * data / length : données du message (le numéro d'alarme, par exemple).
+ *
+ * Attention : appelé depuis sweetdawn_tick() mais aussi au milieu d'une
+ * requête (l'AML peut parler pendant qu'on attend une réponse). Le
+ * gestionnaire ne doit donc PAS envoyer de requête lui-même : il note
+ * l'événement et le traite plus tard (voir app/handlers.c).
+ */
+typedef void (*SweetDawnEventHandler)(
+    void *context,
+    uint8_t code,
+    const uint8_t *data,
+    size_t length
+);
+
 typedef struct {
     AppConfig config;            /* tous les appareils du fichier JSON   */
     const AmlConfig *device;     /* celui qui a été sélectionné          */
@@ -95,6 +113,10 @@ typedef struct {
     bool clock_set;
     int64_t clock_offset_s;
     int64_t clock_synced_ms;
+
+    /* Gestionnaire des messages spontanés (NULL : ignorés). */
+    SweetDawnEventHandler on_event;
+    void *event_context;
 
     /*
      * Source de temps remplaçable pour les tests.
@@ -167,6 +189,16 @@ int sweetdawn_request(
     size_t *response_length
 );
 
+/*
+ * Enregistre le gestionnaire des messages spontanés de l'AML.
+ * À appeler après sweetdawn_init() (qui remet tout à zéro).
+ */
+void sweetdawn_set_event_handler(
+    SweetDawn *app,
+    SweetDawnEventHandler handler,
+    void *context
+);
+
 /* Établit la connexion Bluetooth avec l'appareil sélectionné. */
 int sweetdawn_connect(SweetDawn *app);
 
@@ -180,6 +212,8 @@ int sweetdawn_refresh(SweetDawn *app);
  * À appeler régulièrement (au moins une fois par seconde).
  *
  * Elle s'occupe de tout ce qui concerne la durée de vie de la liaison :
+ *   - lire les messages spontanés déjà arrivés et les transmettre au
+ *     gestionnaire d'événements ;
  *   - tenter de se (re)connecter, avec une attente croissante entre
  *     deux échecs ;
  *   - relire l'état à intervalle régulier, ce qui détecte aussi une

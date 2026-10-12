@@ -24,6 +24,7 @@
 typedef struct {
     uint8_t data[AML_PROTOCOL_MAX_FRAME_SIZE];
     size_t length;
+    bool spontaneous;   /* message spontané, déjà « arrivé » */
 } FakeFrame;
 
 /* Comportement du faux appareil (remis à zéro par fake_reset). */
@@ -50,6 +51,15 @@ void fake_reset(void);
  * aml_receive la rendra au prochain appel.
  */
 void fake_push_response(uint8_t code, const uint8_t *args, size_t args_length);
+
+/*
+ * Ajoute un message spontané de l'AML (alarme, éclairage changé...).
+ *
+ * Différence avec une réponse : une réponse n'« arrive » qu'après une
+ * requête, alors qu'un message spontané est lisible tout de suite,
+ * y compris par une lecture sans attente (aml_receive avec 0 ms).
+ */
+void fake_push_event(uint8_t code, const uint8_t *args, size_t args_length);
 
 /*
  * Prépare app comme après sweetdawn_init (sans fichier de configuration),

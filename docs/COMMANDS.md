@@ -20,8 +20,9 @@ Cette liste vient de l'arbre défini dans [`src/command/aml_commands.c`](../src/
 
 | Commande | Valeur | Effet |
 |---|---|---|
-| `status` | — | État de la liaison, derniers réglages connus et heure de l'AML (`clock`), sans interroger l'AML |
+| `status` | — | État de la liaison, derniers réglages connus, heure de l'AML (`clock`) et état du réveil (`alarm_state`), sans interroger l'AML |
 | `commands` | — | Arbre complet des commandes (types, limites, choix) |
+| `events` | — | Avec `sweetdawn-ctl` : affiche les événements en direct (Ctrl+C pour arrêter). Par IPC, la commande s'appelle `subscribe` |
 
 ## Settings — réglages de l'appareil
 

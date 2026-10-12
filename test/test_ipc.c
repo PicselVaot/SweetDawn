@@ -8,7 +8,9 @@
  *   - l'appel régulier de la tâche périodique ;
  *   - plusieurs requêtes dans un seul envoi, une requête en plusieurs
  *     morceaux, le rejet propre d'un JSON invalide, et une réponse
- *     bien plus grande qu'une requête.
+ *     bien plus grande qu'une requête ;
+ *   - l'abonnement aux événements : seuls les clients abonnés les
+ *     reçoivent.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -292,6 +294,17 @@ static int big_handler(
     return 0;
 }
 
+/* Tâche périodique du serveur de test : diffuse un événement à chaque tour. */
+static void broadcast_tick(void *context)
+{
+    struct json_object *event = json_object_new_object();
+
+    json_object_object_add(event, "type", json_object_new_string("event"));
+    json_object_object_add(event, "event", json_object_new_string("test"));
+    ipc_server_broadcast(context, event);
+    json_object_put(event);
+}
+
 int main(void)
 {
     int early_failures = test_socket_orphelin() + test_tick();
@@ -320,6 +333,7 @@ int main(void)
         }
 
         ipc_server_set_handler(&server, big_handler, NULL);
+        ipc_server_set_tick(&server, broadcast_tick, &server);
 
         int result = ipc_server_run(&server);
 
@@ -488,6 +502,36 @@ int main(void)
         failures += check(
             1,
             "une reponse de plus de 20 Ko arrive entiere") != 0;
+    }
+
+    /*
+     * Les tests ci-dessus prouvent qu'un client non abonné ne reçoit
+     * pas les événements (sinon ses lectures auraient lu un événement
+     * au lieu d'une réponse). Un client abonné, lui, les reçoit.
+     */
+    int listener = connect_client(TEST_SOCKET);
+    const char *subscribe = "{\"type\":\"request\",\"id\":5,"
+                            "\"command\":\"subscribe\",\"args\":[]}\n";
+    char event_line[8192];
+    int got_event = 0;
+
+    if (listener >= 0 &&
+        write(listener, subscribe, strlen(subscribe)) ==
+            (ssize_t)strlen(subscribe) &&
+        read_line(listener, line, sizeof(line)) == 0 &&
+        strstr(line, "\"subscribed\":true") != NULL) {
+
+        /* L'événement arrive au plus tard au tour de boucle suivant. */
+        for (int i = 0; i < 3 && !got_event; i++) {
+            got_event = read_line(listener, event_line, sizeof(event_line)) == 0 &&
+                        strstr(event_line, "\"type\":\"event\"") != NULL;
+        }
+    }
+
+    failures += check(got_event, "un client abonne recoit les evenements") != 0;
+
+    if (listener >= 0) {
+        close(listener);
     }
 
     close(fd);

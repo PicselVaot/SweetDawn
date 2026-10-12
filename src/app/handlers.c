@@ -435,6 +435,10 @@ static int regler_heure(const Command *command, int argc,
 /* Handlers : Alarm                                                          */
 /* ------------------------------------------------------------------------- */
 
+/* Définies plus bas, avec le suivi du réveil (section Événements). */
+static void surveiller_alarme_bientot(void);
+static void noter_arret_demande(void);
+
 /* Groupe "1" ou "2" (Alarm/1, Alarm/2) -> numéro de l'alarme. */
 static int numero_alarme(const Command *alarm_group)
 {
@@ -649,10 +653,17 @@ static int agir_sur_alarme(const Command *command, int argc,
     (void)argc;
     (void)argv;
 
-    if (strcmp(command->name, "Stop") == 0)
-        return verifier(ctx, control_alarm_stop(ctx->app));
+    bool stop = strcmp(command->name, "Stop") == 0;
+    int code = stop ? control_alarm_stop(ctx->app)
+                    : control_alarm_snooze(ctx->app);
 
-    return verifier(ctx, control_alarm_snooze(ctx->app));
+    /* L'état du réveil vient de changer : le relire au prochain tour. */
+    surveiller_alarme_bientot();
+
+    if (stop && code == 0)
+        noter_arret_demande();
+
+    return verifier(ctx, code);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -665,48 +676,55 @@ static ControlLightTarget cible(const Command *group)
     return strcmp(group->name, "Mood") == 0 ? CONTROL_MOOD : CONTROL_LIGHT;
 }
 
+/* État d'une source lumineuse en JSON ; group : Light ou Mood. */
+static struct json_object *lumiere_json(const Command *group,
+                                        const ControlLight *light)
+{
+    ControlLightTarget target = cible(group);
+    struct json_object *object = json_object_new_object();
+
+    json_object_object_add(object, "enable",
+                           json_object_new_boolean(light->enable));
+    json_object_object_add(object, "brightness",
+                           json_object_new_int(light->brightness));
+
+    if (target == CONTROL_LIGHT) {
+        json_object_object_add(object, "sunset",
+                               json_object_new_boolean(light->timer_enable));
+        json_object_object_add(object, "sunset_duration",
+                               json_object_new_int(light->timer_minutes));
+    } else {
+        char couleur[12];
+
+        snprintf(couleur, sizeof(couleur), "%u,%u,%u",
+                 light->red, light->green, light->blue);
+
+        json_object_object_add(object, "timer",
+                               json_object_new_boolean(light->timer_enable));
+        json_object_object_add(object, "timer_duration",
+                               json_object_new_int(light->timer_minutes));
+        json_object_object_add(object, "color",
+                               json_object_new_string(couleur));
+        ajouter_texte(object, "scene",
+                      nom_choix(group, "Scene", light->scene));
+    }
+
+    return object;
+}
+
 /* Light, Mood : lit l'état de la source lumineuse. */
 static int lire_lumiere(const Command *command, int argc,
                         const char *const argv[], void *context)
 {
     HandlerContext *ctx = context;
-    ControlLightTarget target = cible(command);
     ControlLight light;
     (void)argc;
     (void)argv;
 
-    if (verifier(ctx, control_light_query(ctx->app, target, &light)) != 0)
+    if (verifier(ctx, control_light_query(ctx->app, cible(command), &light)) != 0)
         return -1;
 
-    struct json_object *object = json_object_new_object();
-
-    json_object_object_add(object, "enable",
-                           json_object_new_boolean(light.enable));
-    json_object_object_add(object, "brightness",
-                           json_object_new_int(light.brightness));
-
-    if (target == CONTROL_LIGHT) {
-        json_object_object_add(object, "sunset",
-                               json_object_new_boolean(light.timer_enable));
-        json_object_object_add(object, "sunset_duration",
-                               json_object_new_int(light.timer_minutes));
-    } else {
-        char couleur[12];
-
-        snprintf(couleur, sizeof(couleur), "%u,%u,%u",
-                 light.red, light.green, light.blue);
-
-        json_object_object_add(object, "timer",
-                               json_object_new_boolean(light.timer_enable));
-        json_object_object_add(object, "timer_duration",
-                               json_object_new_int(light.timer_minutes));
-        json_object_object_add(object, "color",
-                               json_object_new_string(couleur));
-        ajouter_texte(object, "scene",
-                      nom_choix(command, "Scene", light.scene));
-    }
-
-    ctx->result = object;
+    ctx->result = lumiere_json(command, &light);
     return 0;
 }
 
@@ -871,6 +889,282 @@ static int ecrire_haut_parleur(const Command *command, int argc,
 }
 
 /* ------------------------------------------------------------------------- */
+/* Événements                                                                */
+/* ------------------------------------------------------------------------- */
+/*
+ * Messages spontanés de l'AML -> événements pour les clients abonnés.
+ *
+ * Le cœur appelle handlers_on_event() dès qu'un message arrive, parfois
+ * au milieu d'une requête : on se contente de le noter. handlers_tick()
+ * le traite ensuite (avec relectures si besoin), puis le diffuse :
+ *
+ *   {"type":"event","event":"alarm_state","data":{"state":"ringing","alarm":2}}
+ *   {"type":"event","event":"light_changed","data":{"light":{...},"mood":{...}}}
+ *   {"type":"event","event":"timer_ended","data":{"timer":"radio"}}
+ *
+ * État du réveil : l'AML signale le début du lever de soleil (C6) et la
+ * sonnerie (C7), mais rien quand on le tape (snooze) ou qu'on l'arrête
+ * aux boutons. Tant qu'une alarme est en cours, on relit donc son état
+ * (code 25) toutes les ALARM_WATCH_MS pour suivre :
+ * idle -> sunrise -> ringing -> snoozed -> ringing -> ... -> idle.
+ *
+ * Snooze ou arrêt ? Quand la sonnerie cesse, l'état relu ne permet pas
+ * toujours de les distinguer (constaté sur le matériel : « rien en
+ * cours » dans les deux cas). On passe alors en « snoozed » pour la
+ * durée de snooze de l'alarme, plus une marge : si elle resonne, on le
+ * verra ; sinon c'était un arrêt, et on repasse en « idle ». Un arrêt
+ * demandé par Alarm/Stop, lui, est connu : « idle » tout de suite.
+ */
+
+#define ALARM_WATCH_MS 10000
+#define EVENT_QUEUE_SIZE 16
+
+/* Marge après la fin du snooze avant de conclure à un arrêt. */
+#define SNOOZE_MARGIN_MS 60000
+
+/* Durées de snooze, dans l'ordre des choix Alarm/<n>/Snooze. */
+static const int SNOOZE_MINUTES[] = { 1, 2, 5, 10, 20, 30 };
+
+typedef enum {
+    REVEIL_REPOS,      /* rien en cours            */
+    REVEIL_LEVER,      /* lever de soleil en cours */
+    REVEIL_SONNE,      /* l'alarme sonne           */
+    REVEIL_SNOOZE      /* sonnerie reportée        */
+} EtatReveil;
+
+/* Noms diffusés aux clients, dans l'ordre de EtatReveil. */
+static const char *const NOMS_REVEIL[] = { "idle", "sunrise", "ringing", "snoozed" };
+
+static struct {
+    /* Messages notés par handlers_on_event, pas encore traités. */
+    struct { uint8_t code; uint8_t value; } file[EVENT_QUEUE_SIZE];
+    size_t taille;
+    bool eclairage_change;       /* au moins un CA reçu */
+
+    /* Réveil. */
+    EtatReveil etat;
+    int alarme;                  /* alarme concernée, 0 si aucune        */
+    bool a_sonne;                /* a sonné depuis le dernier repos :    */
+                                 /* distingue un snooze d'un lever       */
+    bool surveiller;             /* relire l'état régulièrement          */
+    int64_t prochaine_lecture_ms;
+    int64_t fin_snooze_ms;       /* au-delà, un snooze sans resonner     */
+                                 /* était en fait un arrêt               */
+    bool arret_demande;          /* Alarm/Stop envoyé par SweetDawn      */
+    unsigned connexions;         /* pour relire l'état après reconnexion */
+
+    /* Diffusion aux clients. */
+    HandlersBroadcast diffuser;
+    void *contexte;
+} evenements;
+
+void handlers_on_event(void *context, uint8_t code,
+                       const uint8_t *data, size_t length)
+{
+    (void)context;
+
+    /* Plusieurs CA de suite (gestes) : une seule relecture suffit. */
+    if (code == AML_EVT_LIGHT_REFRESH) {
+        evenements.eclairage_change = true;
+        return;
+    }
+
+    if (evenements.taille < EVENT_QUEUE_SIZE) {
+        evenements.file[evenements.taille].code = code;
+        evenements.file[evenements.taille].value = length > 0 ? data[0] : 0;
+        evenements.taille++;
+    }
+}
+
+void handlers_set_broadcast(HandlersBroadcast broadcast, void *context)
+{
+    evenements.diffuser = broadcast;
+    evenements.contexte = context;
+}
+
+/* Diffuse un événement ; data est pris en charge (libéré ici). */
+static void diffuser(const char *name, struct json_object *data)
+{
+    struct json_object *event = json_object_new_object();
+
+    json_object_object_add(event, "type", json_object_new_string("event"));
+    json_object_object_add(event, "event", json_object_new_string(name));
+    json_object_object_add(event, "data", data);
+
+    printf("SweetDawn : événement %s %s\n", name,
+           json_object_to_json_string_ext(data, JSON_C_TO_STRING_PLAIN));
+
+    if (evenements.diffuser != NULL)
+        evenements.diffuser(evenements.contexte, event);
+
+    json_object_put(event);
+}
+
+/* {"state": "ringing", "alarm": 2}, alarm vaut null au repos. */
+static struct json_object *reveil_json(void)
+{
+    struct json_object *object = json_object_new_object();
+
+    json_object_object_add(object, "state",
+                           json_object_new_string(NOMS_REVEIL[evenements.etat]));
+    json_object_object_add(object, "alarm",
+                           evenements.alarme > 0
+                           ? json_object_new_int(evenements.alarme)
+                           : json_object_new_null());
+    return object;
+}
+
+static void changer_reveil(EtatReveil etat, int alarme)
+{
+    if (etat == evenements.etat && alarme == evenements.alarme)
+        return;
+
+    evenements.etat = etat;
+    evenements.alarme = alarme;
+    diffuser("alarm_state", reveil_json());
+}
+
+/* Relire l'état du réveil au prochain tour (après un arrêt, une reconnexion...). */
+static void surveiller_alarme_bientot(void)
+{
+    evenements.surveiller = true;
+    evenements.prochaine_lecture_ms = 0;
+}
+
+/* Alarm/Stop a réussi : c'est un arrêt, pas un snooze. */
+static void noter_arret_demande(void)
+{
+    evenements.arret_demande = true;
+}
+
+/*
+ * La sonnerie vient de cesser sans arrêt demandé : snooze présumé, pour
+ * la durée de snooze de l'alarme (relue) plus une marge.
+ */
+static void presumer_snooze(SweetDawn *app, int64_t now)
+{
+    ControlAlarm alarm;
+    int minutes = 30;   /* le plus long, si la durée n'est pas lisible */
+
+    if (control_alarm_query(app, evenements.alarme, &alarm) == 0 &&
+        alarm.snooze < sizeof(SNOOZE_MINUTES) / sizeof(SNOOZE_MINUTES[0]))
+        minutes = SNOOZE_MINUTES[alarm.snooze];
+
+    evenements.fin_snooze_ms = now + minutes * 60000LL + SNOOZE_MARGIN_MS;
+    changer_reveil(REVEIL_SNOOZE, evenements.alarme);
+}
+
+/* Tant qu'une alarme est en cours, relit son état pour suivre ses étapes. */
+static void suivre_reveil(SweetDawn *app, int64_t now)
+{
+    uint8_t lever, sonne;
+
+    if (!evenements.surveiller || now < evenements.prochaine_lecture_ms)
+        return;
+
+    evenements.prochaine_lecture_ms = now + ALARM_WATCH_MS;
+
+    if (control_alarm_status(app, &lever, &sonne) != 0)
+        return;
+
+    if (sonne != 0) {
+        evenements.a_sonne = true;
+        evenements.fin_snooze_ms = 0;
+        changer_reveil(REVEIL_SONNE, sonne);
+    } else if (lever != 0 && !evenements.arret_demande) {
+        changer_reveil(evenements.a_sonne ? REVEIL_SNOOZE : REVEIL_LEVER, lever);
+    } else if (evenements.etat == REVEIL_SONNE && !evenements.arret_demande) {
+        presumer_snooze(app, now);
+    } else if (evenements.etat == REVEIL_SNOOZE && !evenements.arret_demande &&
+               now < evenements.fin_snooze_ms) {
+        /* Snooze présumé en cours : attendre qu'elle resonne ou non. */
+    } else {
+        evenements.a_sonne = false;
+        evenements.arret_demande = false;
+        evenements.fin_snooze_ms = 0;
+        evenements.surveiller = false;
+        changer_reveil(REVEIL_REPOS, 0);
+    }
+}
+
+/* Relit Light et Mood, puis diffuse light_changed. */
+static void relire_eclairage(SweetDawn *app)
+{
+    const CommandRegistry *registry = &app->commands.registry;
+    ControlLight light, mood;
+
+    if (control_light_query(app, CONTROL_LIGHT, &light) != 0 ||
+        control_light_query(app, CONTROL_MOOD, &mood) != 0)
+        return;
+
+    struct json_object *data = json_object_new_object();
+
+    json_object_object_add(data, "light",
+                           lumiere_json(registry_find(registry, "Light"), &light));
+    json_object_object_add(data, "mood",
+                           lumiere_json(registry_find(registry, "Mood"), &mood));
+    diffuser("light_changed", data);
+}
+
+/* Traite les messages notés depuis le tour précédent. */
+static void traiter_evenements(SweetDawn *app, int64_t now)
+{
+    for (size_t i = 0; i < evenements.taille; i++) {
+        uint8_t value = evenements.file[i].value;
+        const char *timer = NULL;
+
+        switch (evenements.file[i].code) {
+        case AML_EVT_SUNRISE_START:
+            evenements.a_sonne = false;
+            evenements.arret_demande = false;
+            evenements.surveiller = true;
+            evenements.prochaine_lecture_ms = now + ALARM_WATCH_MS;
+            changer_reveil(REVEIL_LEVER, value);
+            break;
+        case AML_EVT_ALARM_RING:
+            evenements.a_sonne = true;
+            evenements.arret_demande = false;
+            evenements.fin_snooze_ms = 0;
+            evenements.surveiller = true;
+            evenements.prochaine_lecture_ms = now + ALARM_WATCH_MS;
+            changer_reveil(REVEIL_SONNE, value);
+            break;
+        case AML_EVT_LIGHT_TIMER_END:
+            timer = "light";
+            evenements.eclairage_change = true;
+            break;
+        case AML_EVT_MOOD_TIMER_END:
+            timer = "mood";
+            evenements.eclairage_change = true;
+            break;
+        case AML_EVT_RADIO_TIMER_END:
+            timer = "radio";
+            break;
+        case AML_EVT_MUSIC_TIMER_END:
+            timer = "music";
+            break;
+        default:
+            break;
+        }
+
+        if (timer != NULL) {
+            struct json_object *data = json_object_new_object();
+
+            json_object_object_add(data, "timer", json_object_new_string(timer));
+            diffuser("timer_ended", data);
+        }
+    }
+
+    /* Vider la file avant les relectures : elles peuvent en ajouter. */
+    evenements.taille = 0;
+
+    if (evenements.eclairage_change) {
+        evenements.eclairage_change = false;
+        relire_eclairage(app);
+    }
+}
+
+/* ------------------------------------------------------------------------- */
 /* Table des handlers                                                        */
 /* ------------------------------------------------------------------------- */
 
@@ -956,16 +1250,12 @@ static int lier(CommandRegistry *registry, const char *path,
  * Garde l'écart choisi avec Settings/Set time (0 par défaut) et
  * rattrape la dérive de l'horloge de l'AML.
  */
-void handlers_tick(SweetDawn *app)
+static void entretenir_horloge(SweetDawn *app, int64_t now_ms)
 {
     static int64_t next_attempt_ms = 0;
-    int64_t now_ms;
 
-    if (app == NULL || !sweetdawn_is_connected(app) ||
-        !app->state.known || app->state.time != 0)
+    if (!app->state.known || app->state.time != 0)
         return;
-
-    now_ms = sweetdawn_now_ms(app);
 
     if (now_ms < next_attempt_ms ||
         (app->clock_set && now_ms - app->clock_synced_ms < CLOCK_RESYNC_MS))
@@ -984,6 +1274,28 @@ void handlers_tick(SweetDawn *app)
     }
 }
 
+/*
+ * Tâche périodique du service, après sweetdawn_tick() : événements de
+ * l'AML, suivi du réveil, puis horloge.
+ */
+void handlers_tick(SweetDawn *app)
+{
+    if (app == NULL || !sweetdawn_is_connected(app))
+        return;
+
+    int64_t now = sweetdawn_now_ms(app);
+
+    /* Nouvelle connexion : l'état du réveil a pu changer entre-temps. */
+    if (app->connect_count != evenements.connexions) {
+        evenements.connexions = app->connect_count;
+        surveiller_alarme_bientot();
+    }
+
+    traiter_evenements(app, now);
+    suivre_reveil(app, now);
+    entretenir_horloge(app, now);
+}
+
 int handlers_attach(SweetDawn *app)
 {
     CommandRegistry *registry;
@@ -991,6 +1303,9 @@ int handlers_attach(SweetDawn *app)
 
     if (app == NULL || !app->initialized)
         return -1;
+
+    /* Repartir d'un état d'événements vierge (diffusion comprise). */
+    memset(&evenements, 0, sizeof(evenements));
 
     registry = &app->commands.registry;
 
@@ -1075,6 +1390,9 @@ static struct json_object *status_json(SweetDawn *app)
     }
 
     json_object_object_add(object, "clock", clock);
+
+    /* État du réveil, mis à jour par les événements. */
+    json_object_object_add(object, "alarm_state", reveil_json());
 
     return object;
 }

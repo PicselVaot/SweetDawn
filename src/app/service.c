@@ -9,7 +9,9 @@
  *     connecte, se reconnecte et relit l'état périodiquement ;
  *   - ipc/ipc_server accepte les clients sur un socket Unix et transmet
  *     leurs commandes à app/handlers.c, qui les exécute avec
- *     core/control.c.
+ *     core/control.c ;
+ *   - les messages spontanés de l'AML (alarme, éclairage...) passent par
+ *     app/handlers.c, qui les diffuse aux clients abonnés.
  *
  * Tout tourne dans un seul fil : la boucle du serveur IPC appelle
  * sweetdawn_tick() au moins une fois par seconde (voir service_tick).
@@ -47,6 +49,12 @@ static void service_tick(void *context)
 {
     sweetdawn_tick(context);
     handlers_tick(context);
+}
+
+/* Envoie un événement de l'AML à tous les clients abonnés. */
+static void service_broadcast(void *context, struct json_object *event)
+{
+    ipc_server_broadcast(context, event);
 }
 
 int main(int argc, char **argv)
@@ -142,6 +150,13 @@ int main(int argc, char **argv)
         service_tick,
         &app
     );
+
+    /*
+     * Événements : les messages spontanés de l'AML vont aux handlers,
+     * qui les traitent et les diffusent aux clients abonnés.
+     */
+    sweetdawn_set_event_handler(&app, handlers_on_event, &app);
+    handlers_set_broadcast(service_broadcast, &server);
 
     printf("SweetDawn service demarre.\n");
     printf("Appareil: %s\n", app.device->name);

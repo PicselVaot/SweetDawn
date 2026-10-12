@@ -9,6 +9,7 @@ SweetDawn runs on a Raspberry Pi as a background service. It keeps a single Blue
 - **Full device control** — Light, mood light (color and scenes), FM radio, both alarms (time, days, tone, sunrise), display settings and Bluetooth speaker.
 - **Persistent service** — One Bluetooth connection, kept alive and re-established automatically when the AML005 comes back.
 - **Clock and next alarm** — Keeps the AML005 clock on time and tells when each alarm will ring next (`in 11 h 05 min`).
+- **Live events** — Alarm ringing, sunrise starting, snooze, light changed by a gesture or a button, timers ending: pushed to clients as they happen.
 - **Command-line client** — `sweetdawn-ctl Light/Enable true`, answered in about 100 ms through the open connection.
 - **Home Assistant** — Every function appears automatically through MQTT discovery, including "next alarm" timestamps usable in automations.
 - **Validated commands** — Every value is checked (type, range, allowed choices) before anything is sent to the device.
@@ -18,7 +19,6 @@ SweetDawn runs on a Raspberry Pi as a background service. It keeps a single Blue
 
 ### Planned
 
-- **Live events** — Report alarms ringing, timers ending and state changes as they happen, instead of polling.
 - **Graphical client**.
 
 ## Architecture
@@ -112,6 +112,7 @@ sweetdawn-ctl Alarm/1/Time 07:30          # set alarm 1
 sweetdawn-ctl "Alarm/1/Tone volume" 5     # names with spaces need quotes
 sweetdawn-ctl "Settings/Set time" 07:45   # set the AML clock
 sweetdawn-ctl commands                    # every available command
+sweetdawn-ctl events                      # follow events live (Ctrl+C to stop)
 ```
 
 **Every command, with its values and limits, is listed in [docs/COMMANDS.md](docs/COMMANDS.md).**
@@ -150,6 +151,7 @@ SWEETDAWN_SOCKET=/tmp/sweetdawn.sock sweetdawn-ctl status
 - **Radio** switch, volume, preset, frequency, seek and tune buttons;
 - **Alarms**: on/off, time, each day, tone, volume, snooze, sunrise; stop and snooze buttons;
 - **Next alarm** timestamps: Home Assistant shows "in 11 hours" and can use them in automations;
+- **Alarm state** (`repos`, `lever de soleil`, `sonne`, `snooze`) and an **alarm ringing** binary sensor, updated live;
 - **AML clock**: shows the device time and lets you set another one;
 - **Settings**, and a **Bluetooth connectivity** sensor.
 
@@ -163,11 +165,11 @@ journalctl -u sweetdawn-mqtt -f                # live log
 
 `config/mqtt.json` points to a credentials file containing `{"user": "...", "passw": "..."}`. Both stay out of Git.
 
-The bridge reads the device state every `poll_seconds` (30 s by default) and one second after each command, since the AML005 does not acknowledge every command. Topics live under `sweetdawn/aml005/`.
+The bridge subscribes to the service events, so alarms and light changes made on the device (buttons, gesture sensor) show up in Home Assistant immediately. It also reads the device state every `poll_seconds` (30 s by default) and one second after each command, since the AML005 does not acknowledge every command. Topics live under `sweetdawn/aml005/`.
 
 ### IPC protocol
 
-Each message is a single JSON object on one line, terminated by `\n`. Requests are at most 4096 bytes.
+Each message is a single JSON object on one line, terminated by `\n`. Requests are at most 4096 bytes. A client may also subscribe to events, which then arrive on the same connection.
 
 Request:
 
@@ -197,6 +199,7 @@ The full list of commands is in [docs/COMMANDS.md](docs/COMMANDS.md).
 |---|---|---|
 | `status` | none | Link state, last known settings and AML clock, answered instantly without querying the device |
 | `commands` | none | The full command tree: names, value types, ranges, choices |
+| `subscribe` | none | Receive events on this connection from now on (see below) |
 | a group, e.g. `Light` | none | Reads that part of the device: `Settings`, `Alarm`, `Alarm/1`, `Alarm/2`, `Light`, `Mood`, `Radio` |
 | a setting, e.g. `Light/Brightness` | one value | Changes it; the value is checked first (type, range, allowed choices) |
 | an action, e.g. `Radio/>>` | none | Runs it: `Settings/Sync time`, `Alarm/Stop`, `Alarm/Snooze`, `Radio/<`, `Radio/>`, `Radio/<<`, `Radio/>>` |
@@ -208,17 +211,37 @@ Values may be sent as JSON strings, numbers or booleans: `[75]`, `["75"]`, `[tru
 ```json
 {"connected": true, "known": true, "age_ms": 842, "authorization": 22,
  "settings": {"display_brightness": "H", "display_time": "24", "time": "auto", "feedback": true, "fade": true},
- "clock": {"known": true, "time": "2026-10-12T18:27:38+02:00", "offset_s": 0}}
+ "clock": {"known": true, "time": "2026-10-12T18:27:38+02:00", "offset_s": 0},
+ "alarm_state": {"state": "idle", "alarm": null}}
 ```
 
 - `connected` — the Bluetooth link is currently open.
 - `known` — the state has been read at least once. `age_ms`, `authorization` and `settings` are present only when `known` is true.
 - `age_ms` — age of the last state reading. During an outage the last known values are kept; use this field to judge their freshness.
 - `clock` — the AML005 clock as set by SweetDawn, and its offset from the system clock; `known` is false in manual time mode or before the first setting.
+- `alarm_state` — what the alarm is doing now (see `alarm_state` events below).
 
 An alarm read (`Alarm/1`) also returns its next trigger: `next` (ISO 8601, or `null` if the alarm is off or the clock unknown), `in` (`"11 h 05 min"`) and `in_s` (seconds).
 
 Some device commands are not acknowledged by the AML005 (see [docs/PROTOCOL.md](docs/PROTOCOL.md)): success then means the command was sent. Read the group back to check the effect.
+
+#### Events
+
+After `subscribe`, the service pushes events on the same connection, between responses:
+
+```json
+{"type": "event", "event": "alarm_state", "data": {"state": "ringing", "alarm": 2}}
+{"type": "event", "event": "light_changed", "data": {"light": {...}, "mood": {...}}}
+{"type": "event", "event": "timer_ended", "data": {"timer": "radio"}}
+```
+
+| Event | When | Data |
+|---|---|---|
+| `alarm_state` | The alarm state changes | `state`: `idle`, `sunrise`, `ringing` or `snoozed`; `alarm`: 1, 2 or `null` |
+| `light_changed` | The light or mood light changed on the device (button, gesture sensor, timer) | Both states, as returned by `Light` and `Mood` |
+| `timer_ended` | A sleep timer ended | `timer`: `light`, `mood`, `radio` or `music` |
+
+The AML005 reports the sunrise and the ringing itself, but nothing when it is tapped (snooze) or stopped with its button. While an alarm is active, the service reads its state every 10 s. When the ringing stops, the state becomes `snoozed` for the alarm's snooze duration: if it does not ring again, it was stopped, and the state returns to `idle`. A stop sent through SweetDawn (`Alarm/Stop`) is known, and gives `idle` at once.
 
 #### Error codes
 
@@ -255,6 +278,8 @@ echo '{"type":"request","id":1,"command":"Light","args":[]}' | nc -U -q1 /run/sw
 
 **The mood light always shows Rainbow** — Turning the mood light on always restarts the Rainbow scene, even when it is already on. Send the scene or color after `Mood/Enable true`. The MQTT bridge already does this.
 
+**The alarm state shows `snoozed` although it was stopped** — Stopped with the device button, the AML005 looks exactly like a snoozed alarm. The state returns to `idle` at the end of the snooze duration. Stopping through SweetDawn (`Alarm/Stop`, or the Home Assistant button) is recognized at once.
+
 **A command returns OK but nothing changes** — Some commands are not acknowledged by the AML005 (see [docs/PROTOCOL.md](docs/PROTOCOL.md)). Read the group back (`sweetdawn-ctl Light`) to see the actual state.
 
 **Home Assistant shows no AML005 entities** — Check `journalctl -u sweetdawn-mqtt -n 50`: a `Connexion MQTT refusée` line points to `config/mqtt.json` or the credentials file. Entities show as unavailable while the AML005 is disconnected.
@@ -271,7 +296,7 @@ src/
 │   ├── cli.c                #   bin/sweetdawn: one-shot diagnostic
 │   ├── service.c            #   bin/sweetdawn-service: persistent service
 │   ├── ctl.c                #   bin/sweetdawn-ctl: command-line client
-│   └── handlers.c / .h      #   IPC commands, AML clock, next alarm
+│   └── handlers.c / .h      #   IPC commands, events, AML clock, next alarm
 ├── ipc/                     # Talking to clients
 │   ├── ipc_server.c / .h    #   Unix domain socket server
 │   └── ipc_protocol.c / .h  #   JSON message parsing and responses
@@ -320,7 +345,7 @@ AML005 <--RFCOMM--> aml/transport <--frames--> core/sweetdawn + core/control <--
 - [x] AML clock tracking and next alarm
 - [x] MQTT integration (Home Assistant)
 - [x] systemd services
-- [ ] Live state change events
+- [x] Live state change events
 - [ ] Graphical client
 
 See [TODO.md](TODO.md) for details.

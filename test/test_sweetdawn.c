@@ -7,7 +7,8 @@
  *   3. l'attente croissante entre deux connexions échouées ;
  *   4. le rejet des trames qui ne sont pas la réponse attendue ;
  *   5. l'abandon d'une liaison devenue silencieuse ;
- *   6. la conservation de l'état pendant une panne.
+ *   6. la conservation de l'état pendant une panne ;
+ *   7. la transmission des messages spontanés de l'AML.
  *
  * Le transport (aml/transport.c) est remplacé par un faux scripté (fake_aml.c),
  * et l'horloge de SweetDawn est pilotée par le test : aucune attente réelle.
@@ -252,6 +253,63 @@ static void test_reponse_courte(void)
           "une trame mal formée ne coupe pas la liaison");
 }
 
+/* Derniers messages spontanés reçus par le gestionnaire d'événements. */
+static uint8_t events[8];
+static uint8_t event_data[8];
+static int event_count = 0;
+
+static void noter_evenement(void *context, uint8_t code,
+                            const uint8_t *data, size_t length)
+{
+    (void)context;
+
+    if (event_count < 8) {
+        events[event_count] = code;
+        event_data[event_count] = length > 0 ? data[0] : 0;
+        event_count++;
+    }
+}
+
+static void test_evenements(void)
+{
+    SweetDawn app;
+
+    printf("\n[7] Messages spontanés de l'AML\n");
+    fake_setup(&app);
+    sweetdawn_set_event_handler(&app, noter_evenement, NULL);
+    event_count = 0;
+
+    fake_push_refresh(0x01, 0x00);
+    sweetdawn_tick(&app);   /* connexion */
+
+    /* L'alarme 2 sonne entre deux tours de boucle. */
+    const uint8_t alarm2[] = {0x02};
+    fake_push_event(0xC7, alarm2, sizeof(alarm2));
+    sweetdawn_tick(&app);
+
+    CHECK(event_count == 1 && events[0] == 0xC7 && event_data[0] == 2,
+          "un message spontané est transmis au tour suivant (C7, alarme 2)");
+
+    /*
+     * Pendant l'attente d'une réponse, l'AML signale un changement
+     * d'éclairage : il est transmis, et la réponse reste reconnue.
+     */
+    fake_now += SWEETDAWN_REFRESH_INTERVAL_MS;
+    fake_push_response(0xF0, (const uint8_t[]){0x16}, 1);
+    /* Rangé comme une réponse : il n'arrive qu'après l'envoi de la
+     * requête suivante, donc pendant l'attente de sa réponse. */
+    fake_push_response(0xCA, NULL, 0);
+    fake_push_response(0xE2, (const uint8_t[]){0x02, 0, 0, 0, 0}, 5);
+    sweetdawn_tick(&app);
+
+    CHECK(event_count == 2 && events[1] == 0xCA,
+          "un message spontané reçu pendant une requête est transmis");
+    CHECK(app.state.display == 0x02,
+          "et la réponse attendue est quand même lue");
+    CHECK(sweetdawn_is_connected(&app),
+          "les messages spontanés ne comptent pas comme des échecs");
+}
+
 int main(void)
 {
     printf("=== Tests de la supervision de liaison SweetDawn ===\n");
@@ -262,6 +320,7 @@ int main(void)
     test_trames_inattendues();
     test_liaison_silencieuse();
     test_reponse_courte();
+    test_evenements();
 
     if (failures != 0) {
         printf("\n%d vérification(s) en échec.\n", failures);

@@ -127,6 +127,13 @@ int control_alarm_query(SweetDawn *app, int number, ControlAlarm *alarm);
 int control_alarm_write(SweetDawn *app, int number,
                         const ControlAlarm *alarm);
 
+/*
+ * Ce qui se passe en ce moment : numéro de l'alarme dont le lever de
+ * soleil est en cours, et de celle qui sonne (0 = aucune).
+ * Pendant un snooze : lever de soleil en cours, rien ne sonne.
+ */
+int control_alarm_status(SweetDawn *app, uint8_t *sunrise, uint8_t *ringing);
+
 /* Agissent sur l'alarme qui sonne en ce moment. */
 int control_alarm_stop(SweetDawn *app);
 int control_alarm_snooze(SweetDawn *app);

@@ -158,7 +158,7 @@ Le 12/10/2026 encore, dans le noir et lumières éteintes, chaque code inconnu d
 
 ## Messages spontanés
 
-Envoyés par l'AML sans requête, une fois la poignée de main faite (pas encore exploités par SweetDawn) :
+Envoyés par l'AML sans requête, une fois la poignée de main faite. SweetDawn les transforme en événements pour ses clients (`src/app/handlers.c`, README section « Events ») :
 
 | Code | Données | Événement |
 |---|---|---|

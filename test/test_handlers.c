@@ -307,19 +307,21 @@ static void test_horloge(void)
     CHECK(!json_object_get_boolean(sous_champ(last_result, "clock", "known")),
           "au démarrage, l'heure de l'AML est inconnue");
 
+    /* Premier tour après connexion : état du réveil (25), puis l'heure (01). */
+    fake_push_response(0xC5, (const uint8_t[]){0, 0}, 2);
     fake_push_response(0xF1, NULL, 0);
     handlers_tick(&app);
-    CHECK(fake_sent_count == 1 && code_envoye(0) == 0x01 && app.clock_set &&
+    CHECK(fake_sent_count == 2 && code_envoye(1) == 0x01 && app.clock_set &&
           app.clock_offset_s == 0,
           "mise à l'heure automatique dès la connexion (écart 0)");
 
     handlers_tick(&app);
-    CHECK(fake_sent_count == 1, "pas de nouvelle mise à l'heure avant 24 h");
+    CHECK(fake_sent_count == 2, "pas de nouvelle mise à l'heure avant 24 h");
 
     fake_now += 24LL * 3600 * 1000;
     fake_push_response(0xF1, NULL, 0);
     handlers_tick(&app);
-    CHECK(fake_sent_count == 2, "nouvelle mise à l'heure 24 h plus tard");
+    CHECK(fake_sent_count == 3, "nouvelle mise à l'heure 24 h plus tard");
 
     /* AML réglé au dimanche 1er mars 2026, 07:45. */
     fake_push_response(0xF1, NULL, 0);
@@ -359,6 +361,122 @@ static void test_horloge(void)
     requete("status", "[]");
     CHECK(!json_object_get_boolean(sous_champ(last_result, "clock", "known")),
           "en mode manual, l'heure de l'AML redevient inconnue");
+}
+
+/* Événements diffusés, capturés à la place du serveur IPC. */
+static char diffuses[8][256];
+static int nb_diffuses = 0;
+
+static void capturer(void *context, struct json_object *event)
+{
+    (void)context;
+
+    if (nb_diffuses < 8) {
+        snprintf(diffuses[nb_diffuses++], sizeof(diffuses[0]), "%s",
+                 json_object_to_json_string_ext(event, JSON_C_TO_STRING_PLAIN));
+    }
+}
+
+/* Le dernier événement diffusé contient-il ce texte ? */
+static int dernier_contient(const char *text)
+{
+    return nb_diffuses > 0 && strstr(diffuses[nb_diffuses - 1], text) != NULL;
+}
+
+static void test_evenements(void)
+{
+    printf("\n[11] Événements de l'AML\n");
+    connecter();
+    handlers_set_broadcast(capturer, NULL);
+    sweetdawn_set_event_handler(&app, handlers_on_event, &app);
+    nb_diffuses = 0;
+
+    /* Horloge déjà réglée : pas de mise à l'heure pendant ce test. */
+    app.clock_set = true;
+    app.clock_synced_ms = fake_now;
+
+    /* Premier tour : état du réveil relu, rien en cours. */
+    fake_push_response(0xC5, (const uint8_t[]){0, 0}, 2);
+    handlers_tick(&app);
+    CHECK(nb_diffuses == 0, "au repos, rien n'est diffusé");
+
+    /* Geste devant l'AML : CA, puis relecture de Light et Mood. */
+    fake_push_event(0xCA, NULL, 0);
+    fake_push_event(0xCA, NULL, 0);
+    sweetdawn_tick(&app);
+    fake_push_response(0xD0, (const uint8_t[]){1, 1, 40, 0, 10}, 5);
+    fake_push_response(0xD0, (const uint8_t[]){2, 0, 100, 0, 120, 255, 0, 0, 0}, 9);
+    handlers_tick(&app);
+    CHECK(nb_diffuses == 1 && dernier_contient("\"light_changed\"") &&
+          dernier_contient("\"brightness\":40"),
+          "deux CA de suite : un seul light_changed, avec l'état relu");
+
+    /* L'alarme 2 sonne. */
+    fake_push_event(0xC7, (const uint8_t[]){2}, 1);
+    sweetdawn_tick(&app);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"state\":\"ringing\"") &&
+          dernier_contient("\"alarm\":2"),
+          "C7 : alarm_state ringing, alarme 2");
+
+    /* On la tape : rien n'est envoyé, l'état relu révèle le snooze. */
+    fake_now += 10000;
+    fake_push_response(0xC5, (const uint8_t[]){2, 0}, 2);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"state\":\"snoozed\""),
+          "lever de soleil sans sonnerie après avoir sonné : snoozed");
+
+    requete("status", "[]");
+    CHECK(strstr(json_object_to_json_string(last_result), "snoozed") != NULL,
+          "status indique aussi l'état du réveil");
+
+    /* Arrêt : l'état est relu aussitôt, retour au repos. */
+    fake_push_response(0xC9, (const uint8_t[]){1}, 1);
+    requete("Alarm/Stop", "[]");
+    fake_push_response(0xC5, (const uint8_t[]){0, 0}, 2);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"state\":\"idle\"") &&
+          dernier_contient("\"alarm\":null"),
+          "après Alarm/Stop : idle");
+
+    int avant = fake_sent_count;
+    fake_now += 60000;
+    handlers_tick(&app);
+    CHECK(fake_sent_count == avant, "au repos, l'état n'est plus relu");
+
+    /*
+     * Sans lever de soleil après la sonnerie (relu « rien en cours ») :
+     * snooze présumé, pour la durée de snooze de l'alarme (ici 2 min).
+     */
+    fake_push_event(0xC7, (const uint8_t[]){2}, 1);
+    sweetdawn_tick(&app);
+    handlers_tick(&app);
+    fake_now += 10000;
+    fake_push_response(0xC5, (const uint8_t[]){0, 0}, 2);
+    fake_push_response(0xF3, (const uint8_t[]){0x87, 1, 55, 19, 99, 1, 7, 1, 1, 2, 100}, 11);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"state\":\"snoozed\""),
+          "plus de sonnerie ni de lever de soleil : snoozed présumé");
+
+    fake_now += 60000;
+    fake_push_response(0xC5, (const uint8_t[]){0, 0}, 2);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"state\":\"snoozed\""),
+          "toujours snoozed pendant la durée du snooze");
+
+    /* Elle ne resonne pas : 2 min + 1 min de marge plus tard, idle. */
+    fake_now += 3 * 60000;
+    fake_push_response(0xC5, (const uint8_t[]){0, 0}, 2);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"state\":\"idle\""),
+          "pas resonné après le snooze : c'était un arrêt, idle");
+
+    /* Fin du minuteur radio. */
+    fake_push_event(0xED, NULL, 0);
+    sweetdawn_tick(&app);
+    handlers_tick(&app);
+    CHECK(dernier_contient("\"timer_ended\"") && dernier_contient("\"radio\""),
+          "ED : timer_ended radio");
 }
 
 static void test_alarme(void)
@@ -463,6 +581,7 @@ int main(void)
     test_commands();
     test_heure();
     test_horloge();
+    test_evenements();
 
     if (last_result != NULL)
         json_object_put(last_result);

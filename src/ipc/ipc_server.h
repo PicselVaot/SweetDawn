@@ -17,7 +17,11 @@
  * Le serveur ne connaît aucune commande : il valide l'enveloppe
  * (type, id, command, args) puis confie la commande au gestionnaire
  * enregistré avec ipc_server_set_handler(). Dans le service, c'est
- * handle_request() dans app/service.c.
+ * handlers_request() dans app/handlers.c.
+ *
+ * Seule exception, "subscribe" : le client est abonné aux événements,
+ * que le service diffuse avec ipc_server_broadcast(). Ils arrivent sur
+ * la même connexion, sous la forme {"type":"event", ...}.
  *
  * Utilisation type :
  *
@@ -85,6 +89,8 @@ typedef int (*IpcRequestHandler)(
  */
 typedef void (*IpcTickHandler)(void *context);
 
+struct IpcClient;      /* état d'un client, privé à ipc_server.c */
+
 typedef struct {
     int listen_fd;     /* socket d'écoute, -1 si fermé                   */
     int running;       /* 0 dès qu'un arrêt est demandé                   */
@@ -98,6 +104,9 @@ typedef struct {
 
     IpcTickHandler tick;
     void *tick_context;
+
+    /* Clients connectés, valable pendant ipc_server_run() seulement. */
+    struct IpcClient *clients;
 } IpcServer;
 
 /*
@@ -131,6 +140,17 @@ void ipc_server_set_tick(
 
 /* Lance la boucle de traitement des clients. */
 int ipc_server_run(IpcServer *server);
+
+/*
+ * Envoie un événement à tous les clients abonnés ("subscribe").
+ *
+ * À appeler pendant ipc_server_run() (depuis la tâche périodique, par
+ * exemple). event est sérialisé tel quel ; l'appelant le libère.
+ * Un client trop en retard pour suivre est déconnecté.
+ *
+ * Retour : 0, ou -1 hors de la boucle ou en cas d'erreur.
+ */
+int ipc_server_broadcast(IpcServer *server, struct json_object *event);
 
 /* Demande l'arrêt de la boucle du serveur. */
 void ipc_server_stop(IpcServer *server);

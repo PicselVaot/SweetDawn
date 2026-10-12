@@ -86,6 +86,7 @@ int aml_send(
  *
  * timeout_ms :
  *   Délai maximal d'attente en millisecondes.
+ *   0 : ne pas attendre, rendre une trame déjà arrivée s'il y en a une.
  *   Une valeur négative signifie attendre indéfiniment.
  *
  * Retour :

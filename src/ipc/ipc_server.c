@@ -17,6 +17,8 @@
  *   - Un client traite une requête à la fois : tant que sa réponse n'est
  *     pas entièrement envoyée, ses lignes suivantes attendent dans son
  *     tampon d'entrée. Les réponses arrivent donc dans l'ordre.
+ *   - Un client qui envoie "subscribe" reçoit ensuite, en plus des
+ *     réponses, les événements diffusés par ipc_server_broadcast().
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -50,13 +52,14 @@
  *
  * input  : octets reçus pas encore traités (une ligne partielle, ou
  *          plusieurs lignes arrivées d'un coup).
- * output : réponse en cours d'envoi, allouée à sa taille exacte (la
- *          liste des commandes, par exemple, dépasse largement une
- *          requête) ; output_offset indique ce qui est déjà parti.
- *          output_length == 0 : aucune réponse en attente.
+ * output : messages en cours d'envoi (une réponse, et pour un abonné
+ *          des événements à la suite), alloué à la taille nécessaire ;
+ *          output_offset indique ce qui est déjà parti.
+ *          output_length == 0 : rien en attente.
  */
-typedef struct {
+struct IpcClient {
     int fd;            /* -1 : emplacement libre */
+    int subscribed;    /* reçoit les événements (commande "subscribe") */
 
     char input[IPC_SERVER_MAX_MESSAGE + 1];
     size_t input_length;
@@ -64,7 +67,16 @@ typedef struct {
     char *output;
     size_t output_length;
     size_t output_offset;
-} IpcClient;
+};
+
+typedef struct IpcClient IpcClient;
+
+/*
+ * Au-delà, le client ne lit plus ce qu'on lui envoie (bloqué, ou trop
+ * lent pour suivre les événements) : il est déconnecté plutôt que de
+ * laisser sa file grossir sans fin.
+ */
+#define IPC_MAX_PENDING_OUTPUT (256 * 1024)
 
 /* ------------------------------------------------------------------------- */
 /* Outils                                                                    */
@@ -161,6 +173,36 @@ static void client_reset(IpcClient *client)
 /* ------------------------------------------------------------------------- */
 
 /*
+ * Ajoute une ligne (texte + '\n') à la suite de ce que le client doit
+ * encore recevoir. Elle partira avec write_client().
+ *
+ * Retour : 0, ou -1 si la mémoire manque ou si le client a déjà trop
+ * de messages en retard (il doit alors être déconnecté).
+ */
+static int client_append(IpcClient *client, const char *text, size_t length)
+{
+    size_t total = client->output_length + length + 1;
+
+    if (total > IPC_MAX_PENDING_OUTPUT) {
+        return -1;
+    }
+
+    char *output = realloc(client->output, total);
+
+    if (output == NULL) {
+        return -1;
+    }
+
+    memcpy(output + client->output_length, text, length);
+    output[total - 1] = '\n';
+
+    client->output = output;
+    client->output_length = total;
+
+    return 0;
+}
+
+/*
  * Construit la réponse JSON et la place dans le tampon de sortie du
  * client. Elle sera réellement envoyée par write_client(), quand le
  * socket sera prêt.
@@ -197,25 +239,11 @@ static int queue_response(
         return -1;
     }
 
-    size_t length = strlen(serialized);
-    char *output = malloc(length + 1);
-
-    if (output == NULL) {
-        json_object_put(response);
-        return -1;
-    }
-
-    free(client->output);
-    client->output = output;
-
-    memcpy(client->output, serialized, length);
-    client->output[length] = '\n';
-    client->output_length = length + 1;
-    client->output_offset = 0;
+    int queued = client_append(client, serialized, strlen(serialized));
 
     json_object_put(response);
 
-    return 0;
+    return queued;
 }
 
 /* Raccourci : met en file une réponse d'erreur { ok: false, error }. */
@@ -330,6 +358,22 @@ static int process_message(
             "INVALID_REQUEST",
             "Le champ args doit etre un tableau JSON"
         );
+        goto done;
+    }
+
+    /*
+     * Abonnement aux événements : géré ici, car il concerne la
+     * connexion du client et non une commande de l'application.
+     */
+    if (strcmp(json_object_get_string(command), "subscribe") == 0) {
+        client->subscribed = 1;
+
+        struct json_object *subscribed = json_object_new_object();
+
+        json_object_object_add(subscribed, "subscribed",
+                               json_object_new_boolean(1));
+        queued = queue_response(client, request, 1, subscribed, NULL, NULL);
+        json_object_put(subscribed);
         goto done;
     }
 
@@ -739,6 +783,9 @@ int ipc_server_run(IpcServer *server)
         clients[i].fd = -1;
     }
 
+    /* Rend les clients accessibles à ipc_server_broadcast(). */
+    server->clients = clients;
+
     while (server->running && !stop_requested) {
         /* Tâches périodiques du service, avant d'attendre les clients. */
         if (server->tick != NULL) {
@@ -893,7 +940,41 @@ int ipc_server_run(IpcServer *server)
         client_reset(&clients[i]);
     }
 
+    server->clients = NULL;
     server->running = 0;
+
+    return 0;
+}
+
+/*
+ * Ajoute l'événement à la file de chaque client abonné. Il partira au
+ * prochain tour de boucle, quand le socket du client sera prêt.
+ */
+int ipc_server_broadcast(IpcServer *server, struct json_object *event)
+{
+    if (server == NULL || event == NULL || server->clients == NULL) {
+        return -1;
+    }
+
+    const char *serialized = json_object_to_json_string_ext(
+        event,
+        JSON_C_TO_STRING_PLAIN
+    );
+
+    if (serialized == NULL) {
+        return -1;
+    }
+
+    size_t length = strlen(serialized);
+
+    for (size_t i = 0; i < IPC_SERVER_MAX_CLIENTS; i++) {
+        IpcClient *client = &server->clients[i];
+
+        if (client->fd >= 0 && client->subscribed &&
+            client_append(client, serialized, length) != 0) {
+            client_reset(client);
+        }
+    }
 
     return 0;
 }

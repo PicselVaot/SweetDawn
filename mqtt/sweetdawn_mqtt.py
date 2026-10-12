@@ -11,8 +11,11 @@ Ce qu'il fait :
   - annonce chaque fonction de l'AML à Home Assistant (MQTT discovery) :
     lampe, ambiance, radio, alarmes, réglages ;
   - exécute les commandes reçues de Home Assistant ;
-  - relit l'état de l'AML toutes les `poll_seconds` secondes, et une
-    seconde après chaque commande (l'AML ne confirme pas toutes ses
+  - s'abonne aux événements du service (réveil qui sonne, éclairage
+    changé par geste ou bouton, fin de minuteur) et les répercute
+    aussitôt ;
+  - relit en plus l'état de l'AML toutes les `poll_seconds` secondes, et
+    une seconde après chaque commande (l'AML ne confirme pas toutes ses
     commandes : relire est le seul moyen d'afficher l'état réel).
 
 Configuration : config/mqtt.json (voir config/mqtt.example.json).
@@ -33,6 +36,7 @@ import queue
 import signal
 import socket
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -319,6 +323,14 @@ CHOICES = {
 
 DAYS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"]
 
+# États du réveil (événement alarm_state), tels qu'affichés dans Home Assistant.
+ALARM_STATES = {
+    "idle": "repos",
+    "sunrise": "lever de soleil",
+    "ringing": "sonne",
+    "snoozed": "snooze",
+}
+
 
 def build_entities():
     config = {"entity_category": "config"}
@@ -447,6 +459,22 @@ def build_entities():
                                {"": Channel(get=lambda c, n=n: or_none(
                                    value_in(c, "Alarm", n, "next")))},
                                dict(timestamp)))
+
+    # État du réveil, mis à jour en direct par les événements du service.
+    # « snooze » après une sonnerie qui cesse : l'AML ne permet pas de
+    # distinguer un snooze d'un arrêt au bouton (voir app/handlers.c).
+    entities.append(Entity("sensor", "alarm_state", "État du réveil", "status",
+                           {"": Channel(get=lambda c: or_none(ALARM_STATES.get(
+                               value_in(c, "status", "alarm_state", "state"))))},
+                           {"device_class": "enum",
+                            "options": list(ALARM_STATES.values()),
+                            "icon": "mdi:alarm-note"}))
+    entities.append(Entity("binary_sensor", "alarm_ringing", "Réveil sonne", "status",
+                           {"": Channel(get=lambda c: on_off(
+                               value_in(c, "status", "alarm_state", "state") == "ringing"
+                               if value_in(c, "status", "alarm_state") else None))},
+                           {"payload_on": "ON", "payload_off": "OFF",
+                            "icon": "mdi:alarm-light"}))
 
     entities.append(button("alarm_stop", "Arrêter l'alarme", "Alarm/Stop",
                            icon="mdi:alarm-off"))
@@ -679,6 +707,10 @@ class Bridge:
             connected = self.cache["status"].get("connected", False)
             self.publish(AML_TOPIC, "online" if connected else "offline")
 
+        self.publish_group(group)
+
+    def publish_group(self, group):
+        """Publie les états des entités d'un groupe, d'après le cache."""
         for entity in self.entities:
             if entity.group != group:
                 continue
@@ -687,6 +719,60 @@ class Bridge:
                     value = channel.get(self.cache)
                     if value is not None:
                         self.publish(self.state_topic(entity, name), value)
+
+    # --- Événements du service ---------------------------------------------
+
+    def listen_events(self):
+        """
+        Fil d'écoute : connexion dédiée au service, abonnée aux événements.
+        Chaque événement est mis en file pour le fil principal. Se
+        reconnecte si le service redémarre.
+        """
+        subscribe = json.dumps({"type": "request", "id": 0,
+                                "command": "subscribe", "args": []}) + "\n"
+
+        while self.running:
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                    sock.connect(self.config["socket"])
+                    sock.sendall(subscribe.encode())
+                    log.info("Abonné aux événements du service")
+                    buffer = b""
+
+                    while self.running:
+                        chunk = sock.recv(65536)
+                        if not chunk:
+                            raise ConnectionError("service arrêté")
+                        buffer += chunk
+                        while b"\n" in buffer:
+                            line, buffer = buffer.split(b"\n", 1)
+                            message = json.loads(line)
+                            if message.get("type") == "event":
+                                self.commands.put(("event", message))
+            except (OSError, ValueError) as error:
+                log.warning("Écoute des événements interrompue : %s", error)
+                time.sleep(5)
+
+    def handle_event(self, message):
+        """Répercute un événement du service sur Home Assistant."""
+        name = message.get("event")
+        data = message.get("data") or {}
+        log.info("Événement %s %s", name, json.dumps(data, ensure_ascii=False))
+
+        if name == "alarm_state":
+            self.cache.setdefault("status", {})["alarm_state"] = data
+            self.publish_group("status")
+        elif name == "light_changed":
+            # L'événement contient déjà l'état relu : pas de requête.
+            self.cache["Light"] = data.get("light", {})
+            self.cache["Mood"] = data.get("mood", {})
+            self.publish_group("Light")
+            self.publish_group("Mood")
+        elif name == "timer_ended":
+            group = {"light": "Light", "mood": "Mood",
+                     "radio": "Radio"}.get(data.get("timer"))
+            if group is not None:
+                self.refresh(group)
 
     def refresh_all(self):
         self.refresh("status")
@@ -729,6 +815,9 @@ class Bridge:
         self.client.connect_async(self.config["broker"], self.config["port"], 60)
         self.client.loop_start()
 
+        threading.Thread(target=self.listen_events, name="evenements",
+                         daemon=True).start()
+
     def run(self):
         next_poll = 0.0
 
@@ -739,6 +828,8 @@ class Bridge:
                     # Tout republier, même ce qui n'a pas changé.
                     self.published.clear()
                     next_poll = 0.0
+                elif item == "event":
+                    self.handle_event(payload)
                 else:
                     self.execute(item, payload)
             except queue.Empty:

@@ -69,6 +69,13 @@ void fake_push_response(uint8_t code, const uint8_t *args, size_t args_length)
     f[11 + args_length] = 0x0A;
 
     frame->length = total;
+    frame->spontaneous = false;
+}
+
+void fake_push_event(uint8_t code, const uint8_t *args, size_t args_length)
+{
+    fake_push_response(code, args, args_length);
+    fake_queue[fake_queue_count - 1].spontaneous = true;
 }
 
 static int64_t fake_clock(void)
@@ -141,10 +148,16 @@ int aml_receive(
     int timeout_ms)
 {
     (void)connection;
-    (void)timeout_ms;
 
     if (fake_queue_head >= fake_queue_count)
         return fake_empty_code;
+
+    /*
+     * Lecture sans attente : seul un message spontané est déjà là ; une
+     * réponse n'arrive qu'en réaction à une requête.
+     */
+    if (timeout_ms == 0 && !fake_queue[fake_queue_head].spontaneous)
+        return AML_ERR_TIMEOUT;
 
     FakeFrame *frame = &fake_queue[fake_queue_head++];
 
