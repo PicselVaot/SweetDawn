@@ -86,6 +86,7 @@ DEVICE = {
 # annonce vide (conservée) supprime l'entité correspondante.
 RETIRED_DISCOVERY_TOPICS = [
     f"{DISCOVERY_PREFIX}/sensor/aml005_aml_time/config",   # fusionnée dans set_time
+    f"{DISCOVERY_PREFIX}/binary_sensor/aml005_alarm_active/config",  # devenu alarm_phase
 ]
 
 
@@ -323,6 +324,14 @@ CHOICES = {
 
 DAYS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"]
 
+# Réveil en trois états, à partir de l'état détaillé (alarm_state).
+ALARM_PHASES = {
+    "idle": "off",
+    "sunrise": "en cours",
+    "snoozed": "en cours",
+    "ringing": "on",
+}
+
 # États du réveil (événement alarm_state), tels qu'affichés dans Home Assistant.
 ALARM_STATES = {
     "idle": "repos",
@@ -469,6 +478,14 @@ def build_entities():
                            {"device_class": "enum",
                             "options": list(ALARM_STATES.values()),
                             "icon": "mdi:alarm-note"}))
+    # Réveil en trois états : off (rien), en cours (lever de soleil, ou
+    # snooze en attendant de resonner), on (il sonne).
+    entities.append(Entity("sensor", "alarm_phase", "Réveil", "status",
+                           {"": Channel(get=lambda c: or_none(ALARM_PHASES.get(
+                               value_in(c, "status", "alarm_state", "state"))))},
+                           {"device_class": "enum",
+                            "options": ["off", "en cours", "on"],
+                            "icon": "mdi:weather-sunset-up"}))
     entities.append(Entity("binary_sensor", "alarm_ringing", "Réveil sonne", "status",
                            {"": Channel(get=lambda c: on_off(
                                value_in(c, "status", "alarm_state", "state") == "ringing"
