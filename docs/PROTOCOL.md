@@ -8,7 +8,8 @@ Dans le code, les codes sont définis dans [`src/aml/protocol.h`](../src/aml/pro
 
 - Bluetooth classique, RFCOMM, canal 1 en général (voir `config/aml.json`).
 - **L'AML ne répond à rien tant qu'il n'a pas reçu la requête de statut** (`00 16`) ✔. SweetDawn l'envoie à chaque connexion.
-- L'AML n'accepte qu'une connexion à la fois ✔ : quand le service tourne, l'application mobile et `bin/sweetdawn` ne peuvent pas se connecter.
+- L'AML n'accepte qu'une connexion à la fois ✔ : quand le service tourne, l'application mobile et `bin/sweetdawn` ne peuvent pas se connecter. Si l'application mobile se connecte, elle coupe la liaison en cours ✔.
+- L'AML émet un bip à chaque nouvelle connexion ✔.
 
 ## Format d'une trame
 
@@ -151,7 +152,9 @@ Aucune autre réponse, et aucun autre changement d'état, entre `00` et `7F`.
 
 Les codes inconnus de `00` à `3B` ont ensuite été réessayés avec 1 à 6 octets `00` en paramètre : les réponses sont strictement identiques à celles sans paramètre, et aucun autre code ne répond. `01` sans données (mise à l'heure vide) est seulement acquitté (`F1`, sans données).
 
-**Aucune commande connue ne permet de relire l'heure de l'AML.**
+Le 12/10/2026 encore, dans le noir et lumières éteintes, chaque code inconnu de `00` à `3F` (et le champ `display` des réglages) a reçu un octet `0A`, puis `64`, puis `FF`, à 8 s d'intervalle, en observant l'affichage : aucun effet visible. `05`, `06` et `11` renvoient toujours la même valeur, quel que soit le paramètre : ce sont des lectures. Le champ `display` accepte et conserve une valeur hors de 0–2 (relue telle quelle), sans effet visible sur l'affichage.
+
+**Aucune commande connue ne permet de relire l'heure de l'AML, ni de régler la luminosité de l'affichage autrement que par L / H / A.**
 
 ## Messages spontanés
 
