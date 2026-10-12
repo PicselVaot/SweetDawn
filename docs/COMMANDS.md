@@ -34,6 +34,11 @@ Cette liste vient de l'arbre défini dans [`src/command/aml_commands.c`](../src/
 | `Settings/Feedback` | `true`, `false` | Bip des boutons |
 | `Settings/Fade` | `true`, `false` | Fondu lumineux |
 | `Settings/Sync time` | — | **Action** : met l'AML à l'heure du Raspberry Pi |
+| `Settings/Set time` | `HH:MM`, `HH:MM:SS` ou `AAAA-MM-JJ HH:MM` | Met l'AML à l'heure choisie ; sans date, garde celle du jour |
+
+L'AML ne permet pas de relire son heure : on peut seulement la régler.
+
+En mode `manual`, l'heure se règle avec les boutons de l'AML, qui ignore alors toute mise à l'heure venue de l'extérieur. `Sync time` et `Set time` repassent donc d'abord en mode `auto`.
 
 ## Alarm — réveils
 

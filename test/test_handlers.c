@@ -242,6 +242,50 @@ static void test_reglages(void)
           "status décode les réglages (display_brightness = A)");
 }
 
+static void test_heure(void)
+{
+    printf("\n[9] Réglage manuel de l'heure\n");
+    connecter();
+
+    fake_push_response(0xF1, NULL, 0);
+    requete("Settings/Set time", "[\"2026-03-01 07:45\"]");
+
+    const uint8_t *d = donnees_envoyees(0);
+
+    /* s, min, h, jour sem., jour, mois, année-2000, 02 ; 01/03/2026 = dimanche. */
+    CHECK(last_rc == 0 && code_envoye(0) == 0x01, "Set time envoie 0x01");
+    CHECK(d[0] == 0 && d[1] == 45 && d[2] == 7, "secondes 0, 45 min, 7 h");
+    CHECK(d[3] == 0 && d[4] == 1 && d[5] == 3 && d[6] == 26 && d[7] == 2,
+          "dimanche 1er mars 2026, puis la constante 02");
+
+    fake_push_response(0xF1, NULL, 0);
+    requete("Settings/Set time", "[\"23:59:30\"]");
+    d = donnees_envoyees(1);
+    CHECK(last_rc == 0 && d[0] == 30 && d[1] == 59 && d[2] == 23,
+          "HH:MM:SS seul garde la date du jour");
+
+    requete("Settings/Set time", "[\"2026-02-30 10:00\"]");
+    CHECK(strcmp(last_error, "INVALID_VALUE") == 0, "le 30 février est refusé");
+
+    requete("Settings/Set time", "[\"24:00\"]");
+    CHECK(strcmp(last_error, "INVALID_VALUE") == 0, "24:00 est refusé");
+
+    CHECK(fake_sent_count == 2, "rien n'est envoyé pour une heure refusée");
+
+    /* En mode manual, l'AML ignore l'heure : repasser d'abord en auto. */
+    app.state.time = 1;
+    fake_sent_count = 0;
+    fake_push_response(0xF2, NULL, 0);
+    fake_push_response(0xF1, NULL, 0);
+    requete("Settings/Set time", "[\"07:45\"]");
+
+    CHECK(last_rc == 0 && fake_sent_count == 2 &&
+          code_envoye(0) == 0x02 && donnees_envoyees(0)[2] == 0 &&
+          code_envoye(1) == 0x01,
+          "en mode manual : réglages en auto (02), puis l'heure (01)");
+    CHECK(app.state.time == 0, "le mode mémorisé est maintenant auto");
+}
+
 static void test_alarme(void)
 {
     printf("\n[5] Alarme (lecture puis réécriture)\n");
@@ -342,6 +386,7 @@ int main(void)
     test_radio();
     test_erreurs_aml();
     test_commands();
+    test_heure();
 
     if (last_result != NULL)
         json_object_put(last_result);

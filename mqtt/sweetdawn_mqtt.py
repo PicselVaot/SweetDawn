@@ -421,6 +421,12 @@ def build_entities():
                            "Settings/Fade", ["settings", "fade"], **config))
     entities.append(button("sync_time", "Mettre à l'heure", "Settings/Sync time",
                            entity_category="config", icon="mdi:clock-check"))
+    # Heure choisie à la main. L'AML ne permet pas de relire son heure :
+    # sans topic d'état, Home Assistant affiche la dernière valeur envoyée.
+    entities.append(Entity("text", "set_time", "Régler l'heure", "status", {
+        "": Channel(set=lambda p, c: [("Settings/Set time", p)]),
+    }, {"pattern": r"^(\d{4}-\d{2}-\d{2} )?([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$",
+        "min": 5, "max": 19, "icon": "mdi:clock-edit-outline"}))
 
     # --- Haut-parleur Bluetooth ----------------------------------------------
     # L'état n'est pas lisible : Home Assistant le suppose (mode optimiste).

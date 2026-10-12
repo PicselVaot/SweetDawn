@@ -374,6 +374,14 @@ int aml_commands_init(AmlCommandTree *tree)
         goto erreur;
     }
 
+    /* Format HH:MM[:SS] ou AAAA-MM-JJ HH:MM[:SS], vérifié par le handler. */
+    command = ajouter_commande(
+        tree, group, "Set time", "Régler l'heure de l'AML"
+    );
+    if (command == NULL || definir_texte(command) != 0) {
+        goto erreur;
+    }
+
     /* ================================= Alarm ============================= */
 
     group = ajouter_commande(

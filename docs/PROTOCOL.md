@@ -49,7 +49,7 @@ Une requête qui a une réponse reçoit un code différent (colonne *Réponse*).
 Valeurs des réglages :
 - `display` (luminosité de l'affichage) : 0 = L, 1 = H, 2 = auto ;
 - `date` (format d'affichage) : 0 = 24 h, 1 = 12 h ;
-- `time` : 0 = auto, 1 = manuel (l'application remet l'AML à l'heure en passant à auto) ;
+- `time` : 0 = auto, 1 = manuel (l'application remet l'AML à l'heure en passant à auto). **En manuel, l'AML ne répond pas à la mise à l'heure `01`** ✔ ;
 - `feedback`, `fade` : **inversés**, 0 = activé, 1 = désactivé.
 
 Les cinq réglages s'écrivent toujours ensemble.

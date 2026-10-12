@@ -243,6 +243,32 @@ static int ecrire_reglage(const Command *command, int argc,
     return 0;
 }
 
+/*
+ * Envoie une heure à l'AML.
+ *
+ * En mode « manual » (heure réglée avec les boutons de l'AML), l'AML
+ * ignore toute mise à l'heure venue de l'extérieur : on repasse donc
+ * d'abord en mode « auto », celui où l'heure est fournie par
+ * l'application (constaté sur le matériel).
+ */
+static int envoyer_heure(HandlerContext *ctx, const struct tm *tm)
+{
+    if (!ctx->app->state.known)
+        return echec(ctx, "STATE_UNKNOWN",
+                     "Reglages pas encore lus : reessayer apres connexion");
+
+    if (ctx->app->state.time != 0) {
+        AmlState settings = ctx->app->state;
+
+        settings.time = 0;
+
+        if (verifier(ctx, control_settings_write(ctx->app, &settings)) != 0)
+            return -1;
+    }
+
+    return verifier(ctx, control_sync_time(ctx->app, tm));
+}
+
 /* Settings/Sync time : met l'AML à l'heure du Raspberry Pi. */
 static int synchroniser_heure(const Command *command, int argc,
                               const char *const argv[], void *context)
@@ -255,7 +281,83 @@ static int synchroniser_heure(const Command *command, int argc,
     (void)argv;
 
     localtime_r(&now, &local);
-    return verifier(ctx, control_sync_time(ctx->app, &local));
+    return envoyer_heure(ctx, &local);
+}
+
+/*
+ * Lit une date et une heure choisies par l'utilisateur :
+ *   HH:MM, HH:MM:SS                  (date du jour)
+ *   AAAA-MM-JJ HH:MM, AAAA-MM-JJ HH:MM:SS
+ * Les champs absents sont pris dans now ; les secondes absentes valent 0.
+ * Retourne 0 si la date existe (le 30 février est refusé).
+ */
+static int lire_date_heure(const char *value, time_t now, struct tm *tm)
+{
+    int y, mo, d, h, mi, s = 0;
+    char reste;
+    int n;
+
+    localtime_r(&now, tm);
+    y = tm->tm_year + 1900;
+    mo = tm->tm_mon + 1;
+    d = tm->tm_mday;
+
+    n = sscanf(value, "%4d-%2d-%2d %2d:%2d:%2d%c",
+               &y, &mo, &d, &h, &mi, &s, &reste);
+
+    if (n != 6) {
+        s = 0;
+        n = sscanf(value, "%4d-%2d-%2d %2d:%2d%c", &y, &mo, &d, &h, &mi, &reste);
+
+        if (n != 5) {
+            /* Pas de date : reprendre celle du jour (sscanf a pu y écrire). */
+            y = tm->tm_year + 1900;
+            mo = tm->tm_mon + 1;
+            d = tm->tm_mday;
+
+            if (sscanf(value, "%2d:%2d:%2d%c", &h, &mi, &s, &reste) != 3) {
+                s = 0;
+                if (sscanf(value, "%2d:%2d%c", &h, &mi, &reste) != 2)
+                    return -1;
+            }
+        }
+    }
+
+    /* L'AML stocke l'année sur deux chiffres (2000 à 2099). */
+    if (y < 2000 || y > 2099 || mo < 1 || mo > 12 || d < 1 || d > 31 ||
+        h < 0 || h > 23 || mi < 0 || mi > 59 || s < 0 || s > 59)
+        return -1;
+
+    tm->tm_year = y - 1900;
+    tm->tm_mon = mo - 1;
+    tm->tm_mday = d;
+    tm->tm_hour = h;
+    tm->tm_min = mi;
+    tm->tm_sec = s;
+    tm->tm_isdst = -1;
+
+    /* mktime calcule le jour de la semaine ; une date inexistante
+     * (31 avril...) est décalée, ce qui la trahit. */
+    if (mktime(tm) == (time_t)-1 || tm->tm_mday != d || tm->tm_mon != mo - 1)
+        return -1;
+
+    return 0;
+}
+
+/* Settings/Set time : met l'AML à l'heure choisie. */
+static int regler_heure(const Command *command, int argc,
+                        const char *const argv[], void *context)
+{
+    HandlerContext *ctx = context;
+    struct tm chosen;
+    (void)command;
+    (void)argc;
+
+    if (lire_date_heure(argv[0], time(NULL), &chosen) != 0)
+        return echec(ctx, "INVALID_VALUE",
+                     "Heure attendue : HH:MM, HH:MM:SS ou AAAA-MM-JJ HH:MM");
+
+    return envoyer_heure(ctx, &chosen);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -640,6 +742,7 @@ static const Liaison LIAISONS[] = {
     { "Settings/Feedback",           ecrire_reglage },
     { "Settings/Fade",               ecrire_reglage },
     { "Settings/Sync time",          synchroniser_heure },
+    { "Settings/Set time",           regler_heure },
 
     { "Alarm",                       lire_alarmes },
     { "Alarm/1",               lire_alarme },
