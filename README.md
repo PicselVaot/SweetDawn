@@ -15,11 +15,11 @@ The project is designed to run as a persistent background service, allowing mult
 - **Configuration** — Load device and application settings from JSON.
 - **Persistent service** — Keep a single Bluetooth connection alive, refresh the device state periodically, and reconnect automatically with backoff.
 - **Local IPC** — Serve multiple clients over a Unix domain socket with newline-delimited JSON.
+- **Device control** — Read and change settings, alarms, light, mood light, radio and Bluetooth speaker through IPC.
 - **Automated tests** — Test protocol handling, configuration, state management, command registration, link supervision, and IPC.
 
 ### Planned
 
-- **Device control over IPC** — Only the read-only `status` command is exposed by the service today.
 - **State events** — Notify connected clients when the device state changes.
 - **MQTT integration** — Publish device state and accept commands from a home automation system.
 - **Graphical interface** — Provide a GUI client alongside the command-line interface.
@@ -151,33 +151,67 @@ Each message is a single JSON object terminated by a newline (`\n`), at most 409
 Request:
 
 ```json
-{"type": "request", "id": 1, "command": "status", "args": []}
+{"type": "request", "id": 1, "command": "Light/Brightness", "args": [75]}
 ```
 
 `id` is an integer or a string chosen by the client; it is copied into the response.
 
-Successful response:
+Successful response (`result` is `{}` for commands that only change something):
 
 ```json
-{"type": "response", "id": 1, "ok": true, "result": {"connected": true, "known": true, "age_ms": 227, "authorization": 22, "display": 1, "date": 0, "time": 0, "feedback": 0, "fade": 0}}
+{"type": "response", "id": 1, "ok": true, "result": {}}
 ```
-
-- `connected` — the Bluetooth link is currently open.
-- `known` — the state has been read at least once. The device fields are present only when `known` is true.
-- `age_ms` — age of the last state reading. During an outage the last known values are kept; use this field to judge their freshness.
 
 Error response:
 
 ```json
-{"type": "response", "id": 1, "ok": false, "error": {"code": "COMMAND_NOT_IMPLEMENTED", "message": "..."}}
+{"type": "response", "id": 1, "ok": false, "error": {"code": "INVALID_VALUE", "message": "..."}}
 ```
 
-Error codes: `INVALID_JSON`, `INVALID_REQUEST`, `UNSUPPORTED_TYPE`, `INVALID_ARGUMENTS`, `COMMAND_NOT_IMPLEMENTED`, `COMMAND_FAILED`, `STATE_UNAVAILABLE`, `INTERNAL_ERROR`.
+#### Commands
+
+| Command | Args | Effect |
+|---|---|---|
+| `status` | none | Link state and last known settings, answered instantly without querying the device |
+| `commands` | none | The full command tree: names, value types, ranges, choices |
+| a group, e.g. `Light` | none | Reads that part of the device: `Settings`, `Alarm`, `Alarm/Alarm 1`, `Light`, `Mood`, `Radio` |
+| a setting, e.g. `Light/Brightness` | one value | Changes it; the value is checked first (type, range, allowed choices) |
+| an action, e.g. `Radio/>>` | none | Runs it: `Settings/Sync time`, `Alarm/Stop`, `Alarm/Snooze`, `Radio/<`, `Radio/>`, `Radio/<<`, `Radio/>>` |
+
+Values may be sent as JSON strings, numbers or booleans: `[75]`, `["75"]`, `[true]`. Special formats: alarm `Time` is `"HH:MM"`, `Mood/Color` is `"R,G,B"`, alarm `Days` is a bit mask (bit 0 = Sunday … bit 6 = Saturday).
+
+`status` result:
+
+```json
+{"connected": true, "known": true, "age_ms": 842, "authorization": 22,
+ "settings": {"display_brightness": "H", "display_time": "24", "time": "auto", "feedback": true, "fade": true}}
+```
+
+- `connected` — the Bluetooth link is currently open.
+- `known` — the state has been read at least once. The other fields are present only when `known` is true.
+- `age_ms` — age of the last state reading (refreshed every 60 s). During an outage the last known values are kept; use this field to judge their freshness.
+
+Some device commands are not acknowledged by the AML005 (see [docs/PROTOCOL.md](docs/PROTOCOL.md)): success then means the command was sent. Read the group back to check the effect.
+
+#### Error codes
+
+| Code | Meaning |
+|---|---|
+| `INVALID_JSON`, `INVALID_REQUEST`, `UNSUPPORTED_TYPE` | The message itself is malformed |
+| `UNKNOWN_COMMAND` | No such command (see `commands`) |
+| `INVALID_ARGUMENTS` | Wrong number of args |
+| `INVALID_VALUE` | Value out of range, not an allowed choice, or wrong format |
+| `COMMAND_NOT_IMPLEMENTED` | The command exists in the tree but cannot be run yet |
+| `STATE_UNKNOWN` | Settings not read yet; retry once connected |
+| `AML_DISCONNECTED` | The AML005 is not connected right now |
+| `AML_TIMEOUT` | The AML005 did not answer |
+| `AML_PROTOCOL_ERROR` | Unexpected answer from the AML005 |
+| `AML_ERROR`, `COMMAND_FAILED`, `INTERNAL_ERROR` | Other failures |
 
 Quick test from a shell:
 
 ```bash
-echo '{"type":"request","id":1,"command":"status","args":[]}' | nc -U -q1 /tmp/sweetdawn.sock
+echo '{"type":"request","id":1,"command":"Light","args":[]}' | nc -U -q1 /tmp/sweetdawn.sock
 ```
 
 ## Project structure
@@ -186,14 +220,16 @@ The code is split into layers, one directory each.
 
 ```text
 src/
-├── app/                     # Programs (each file has a main)
+├── app/                     # Programs
 │   ├── cli.c                #   bin/sweetdawn: one-shot diagnostic
-│   └── service.c            #   bin/sweetdawn-service: persistent service
+│   ├── service.c            #   bin/sweetdawn-service: persistent service
+│   └── handlers.c / .h      #   IPC commands of the service
 ├── ipc/                     # Talking to clients
 │   ├── ipc_server.c / .h    #   Unix domain socket server
 │   └── ipc_protocol.c / .h  #   JSON message parsing and responses
 ├── core/                    # Application logic
 │   ├── sweetdawn.c / .h     #   Link supervision, refresh, reconnection
+│   ├── control.c / .h       #   One function per device operation
 │   ├── state.c / .h         #   Last known device state
 │   └── config.c / .h        #   config/aml.json loading
 ├── command/                 # Command tree (Settings, Alarm, Light, ...)
@@ -204,14 +240,15 @@ src/
     ├── transport.c / .h     #   Bluetooth RFCOMM connection
     └── protocol.c / .h      #   Frame format, building and parsing
 
-test/                        # One test program per module
+test/                        # One test program per module (fake_aml.c: fake device)
+docs/PROTOCOL.md             # AML005 Bluetooth protocol reference
 config/                      # Example configuration (local aml.json is ignored)
 ```
 
 Data flow in the service:
 
 ```text
-AML005 <--RFCOMM--> aml/transport <--frames--> core/sweetdawn <--state--> app/service <--JSON--> ipc/ipc_server <--socket--> clients
+AML005 <--RFCOMM--> aml/transport <--frames--> core/sweetdawn + core/control <--> app/handlers <--JSON--> ipc/ipc_server <--socket--> clients
 ```
 
 ## Development principles
@@ -235,7 +272,7 @@ SweetDawn follows a few core principles:
 - [x] Persistent background service
 - [x] Automatic Bluetooth reconnection
 - [x] Unix domain socket IPC
-- [ ] Device control commands over IPC
+- [x] Device control commands over IPC
 - [ ] State change events
 - [ ] CLI client communicating with the service
 - [ ] MQTT integration

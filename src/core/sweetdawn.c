@@ -11,7 +11,8 @@
  *                         d'une liaison morte.
  *   3. Échanges         : une requête, une réponse ; lecture du statut
  *                         et des paramètres.
- *   4. API publique     : init, connect, refresh, tick, accesseurs.
+ *   4. API publique     : sweetdawn_request, init, connect, refresh,
+ *                         tick, accesseurs.
  *
  * Tout s'exécute dans un seul fil : le service appelle sweetdawn_tick()
  * depuis la boucle du serveur IPC (voir app/service.c).
@@ -146,20 +147,21 @@ static void traiter_echec_liaison(SweetDawn *app, int code)
 /*
  * Construit et envoie une requête, puis attend SA réponse.
  *
- * expected_code est le code attendu à l'offset 7 de la réponse. Toute
- * autre trame reçue entre-temps (réponse tardive d'un échange précédent,
- * message spontané) est écartée au lieu d'être prise pour la réponse.
+ * C'est l'implémentation de sweetdawn_request() : voir core/sweetdawn.h
+ * pour le détail des paramètres.
  *
- * Cette fonction centralise les échanges synchrones. En cas d'échec,
- * elle met à jour la supervision de la liaison : l'appelant n'a pas à
- * s'en préoccuper.
+ * Toute trame reçue entre-temps qui n'est pas la réponse attendue
+ * (réponse tardive d'un échange précédent, message spontané) est
+ * écartée au lieu d'être prise pour la réponse.
  *
- * Retour : 0, ou un code AML_ERR_* négatif.
+ * En cas d'échec, la supervision de la liaison est mise à jour :
+ * l'appelant n'a pas à s'en préoccuper.
  */
 static int envoyer_requete(
     SweetDawn *app,
     uint8_t request_code,
-    uint8_t expected_code,
+    int expected_code,
+    int timeout_ms,
     const uint8_t *arguments,
     size_t arguments_length,
     uint8_t *response,
@@ -173,14 +175,24 @@ static int envoyer_requete(
     size_t discarded;
     int code;
 
-    if (app == NULL ||
-        !app->connected ||
-        response == NULL ||
-        response_length == NULL) {
+    if (app == NULL || !app->initialized) {
         fprintf(stderr,
                 "SweetDawn : arguments invalides pour une requête AML.\n");
         return AML_ERR_GENERIC;
     }
+
+    if (!app->connected)
+        return AML_ERR_DISCONNECTED;
+
+    if (expected_code != SWEETDAWN_NO_RESPONSE &&
+        (response == NULL || response_length == NULL)) {
+        fprintf(stderr,
+                "SweetDawn : tampon de réponse manquant.\n");
+        return AML_ERR_GENERIC;
+    }
+
+    if (timeout_ms <= 0)
+        timeout_ms = AML_RESPONSE_TIMEOUT_MS;
 
     if (protocol_build_request(
             request_code,
@@ -218,7 +230,11 @@ static int envoyer_requete(
         return code;
     }
 
-    deadline = maintenant(app) + AML_RESPONSE_TIMEOUT_MS;
+    /* Commande sans réponse : l'envoi réussi suffit. */
+    if (expected_code == SWEETDAWN_NO_RESPONSE)
+        return 0;
+
+    deadline = maintenant(app) + timeout_ms;
 
     for (;;) {
         int64_t remaining = deadline - maintenant(app);
@@ -241,7 +257,7 @@ static int envoyer_requete(
 
         if (*response_length > AML_FRAME_CODE_OFFSET &&
             response[2] == AML_FRAME_TYPE_RESPONSE &&
-            response[AML_FRAME_CODE_OFFSET] == expected_code) {
+            response[AML_FRAME_CODE_OFFSET] == (uint8_t)expected_code) {
             app->consecutive_failures = 0;
             return 0;
         }
@@ -275,7 +291,7 @@ static int demander_statut(
     uint8_t *autorisation
 )
 {
-    const uint8_t argument = AML_REQUEST_STATUS_ARG;
+    const uint8_t argument = AML_STATUS_ARG;
     uint8_t response[RESPONSE_BUFFER_SIZE];
     size_t response_length = 0;
     int code;
@@ -285,8 +301,9 @@ static int demander_statut(
 
     code = envoyer_requete(
         app,
-        AML_REQUEST_STATUS,
-        AML_RESPONSE_STATUS,
+        AML_REQ_STATUS,
+        AML_RSP_STATUS,
+        0,
         &argument,
         sizeof(argument),
         response,
@@ -324,8 +341,9 @@ static int demander_parametres(
 
     code = envoyer_requete(
         app,
-        AML_REQUEST_SETTINGS,
-        AML_RESPONSE_SETTINGS,
+        AML_REQ_READ_SETTINGS,
+        AML_RSP_READ_SETTINGS,
+        0,
         NULL,
         0,
         response,
@@ -355,6 +373,35 @@ static int demander_parametres(
     );
 
     return 0;
+}
+
+/* ------------------------------------------------------------------------- */
+/* API publique                                                              */
+/* ------------------------------------------------------------------------- */
+
+int sweetdawn_request(
+    SweetDawn *app,
+    uint8_t request_code,
+    const uint8_t *arguments,
+    size_t arguments_length,
+    int expected_code,
+    int timeout_ms,
+    uint8_t *response,
+    size_t response_capacity,
+    size_t *response_length
+)
+{
+    return envoyer_requete(
+        app,
+        request_code,
+        expected_code,
+        timeout_ms,
+        arguments,
+        arguments_length,
+        response,
+        response_capacity,
+        response_length
+    );
 }
 
 /*

@@ -3,7 +3,7 @@
  *
  * Pour ajouter une commande : l'ajouter dans aml_commands_init() avec
  * ajouter_commande(), puis préciser sa valeur avec definir_booleen,
- * definir_entier, definir_nombre ou definir_choix. Penser à vérifier
+ * definir_entier, definir_texte ou definir_choix. Penser à vérifier
  * que AML_COMMAND_CAPACITY reste suffisant.
  */
 
@@ -15,8 +15,15 @@
 /* Valeurs autorisées                                                        */
 /* ------------------------------------------------------------------------- */
 
+/*
+ * Pour chaque liste, la position d'un choix est la valeur envoyée à
+ * l'AML (le premier vaut 0). L'ordre doit donc suivre le protocole,
+ * pas l'ordre alphabétique ni l'ordre d'affichage.
+ */
+
+/* L = faible, H = forte, A = automatique. */
 static const char *const DISPLAY_BRIGHTNESS_VALUES[] = {
-    "H", "A", "L"
+    "L", "H", "A"
 };
 
 static const char *const DISPLAY_TIME_VALUES[] = {
@@ -146,19 +153,13 @@ static int definir_entier(
 }
 
 /*
- * Définit une valeur numérique avec limites inclusives.
+ * Définit une chaîne libre. Son format (HH:MM, R,G,B...) est vérifié
+ * par le handler qui l'utilise.
  */
-static int definir_nombre(
-    Command *command,
-    double minimum,
-    double maximum
-)
+static int definir_texte(Command *command)
 {
     CommandValueSpec spec = {
-        .type = COMMAND_VALUE_NUMBER,
-        .has_range = true,
-        .minimum = minimum,
-        .maximum = maximum
+        .type = COMMAND_VALUE_STRING
     };
 
     return command_set_value_spec(command, &spec);
@@ -204,14 +205,9 @@ static int ajouter_parametres_alarme(
     command = ajouter_commande(
         tree, alarme, "Time", "Heure de l'alarme au format HH:MM"
     );
-    if (command == NULL) {
+    if (command == NULL || definir_texte(command) != 0) {
         return -1;
     }
-
-    /*
-     * La validation stricte du format HH:MM sera ajoutée au moteur
-     * de validation dans une étape dédiée.
-     */
 
     /* Un bit par jour : 7 bits, donc de 0 (aucun jour) à 127 (tous). */
     command = ajouter_commande(
@@ -370,6 +366,14 @@ int aml_commands_init(AmlCommandTree *tree)
         goto erreur;
     }
 
+    if (
+        ajouter_commande(
+            tree, group, "Sync time", "Mettre l'AML à l'heure du système"
+        ) == NULL
+    ) {
+        goto erreur;
+    }
+
     /* ================================= Alarm ============================= */
 
     group = ajouter_commande(
@@ -390,6 +394,17 @@ int aml_commands_init(AmlCommandTree *tree)
         tree, group, "Alarm 2", "Consulter ou modifier l'alarme 2"
     );
     if (alarme2 == NULL || ajouter_parametres_alarme(tree, alarme2) != 0) {
+        goto erreur;
+    }
+
+    if (
+        ajouter_commande(
+            tree, group, "Stop", "Arrêter l'alarme qui sonne"
+        ) == NULL ||
+        ajouter_commande(
+            tree, group, "Snooze", "Répéter l'alarme qui sonne plus tard"
+        ) == NULL
+    ) {
         goto erreur;
     }
 
@@ -446,17 +461,13 @@ int aml_commands_init(AmlCommandTree *tree)
         goto erreur;
     }
 
+    /* Format R,G,B : trois entiers de 0 à 255, vérifiés par le handler. */
     command = ajouter_commande(
         tree, group, "Color", "Couleur RGB de l'éclairage d'ambiance"
     );
-    if (command == NULL) {
+    if (command == NULL || definir_texte(command) != 0) {
         goto erreur;
     }
-
-    /*
-     * La validation des trois composantes RGB sera ajoutée dans une
-     * étape dédiée. Elle doit accepter trois entiers compris entre 0 et 255.
-     */
 
     command = ajouter_commande(
         tree, group, "Brightness", "Luminosité du mode Mood"
@@ -541,12 +552,11 @@ int aml_commands_init(AmlCommandTree *tree)
         goto erreur;
     }
 
-    command = ajouter_commande(
-        tree, group, "Set", "Régler la fréquence radio en MHz"
-    );
-    if (command == NULL || definir_nombre(command, 87.5, 108.0) != 0) {
-        goto erreur;
-    }
+    /*
+     * Pas de commande « Set » : le protocole ne permet pas de choisir
+     * directement une fréquence, seulement de la faire varier (<, >),
+     * de chercher une station (<<, >>) ou de rappeler une présélection.
+     */
 
     command = ajouter_commande(
         tree, group, "Channel", "Sélectionner un canal radio"
@@ -578,11 +588,17 @@ int aml_commands_init(AmlCommandTree *tree)
 
     /* ============================== Media Player ========================= */
 
-    if (
-        ajouter_commande(
-            tree, root, "Media Player", "Connecter l'AML comme haut-parleur"
-        ) == NULL
-    ) {
+    group = ajouter_commande(
+        tree, root, "Media Player", "Utiliser l'AML comme haut-parleur"
+    );
+    if (group == NULL) {
+        goto erreur;
+    }
+
+    command = ajouter_commande(
+        tree, group, "Enable", "Activer ou désactiver le haut-parleur Bluetooth"
+    );
+    if (command == NULL || definir_booleen(command) != 0) {
         goto erreur;
     }
 

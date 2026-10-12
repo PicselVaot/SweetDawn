@@ -40,10 +40,12 @@ OBJ := bin/obj
 AML_PROTOCOL  := $(OBJ)/aml/protocol.o
 AML_TRANSPORT := $(OBJ)/aml/transport.o
 
-# Cœur applicatif : configuration, état mémorisé, supervision de la liaison.
+# Cœur applicatif : configuration, état mémorisé, supervision de la liaison,
+# et une fonction par opération de l'AML (control).
 CORE_CONFIG    := $(OBJ)/core/config.o
 CORE_STATE     := $(OBJ)/core/state.o
 CORE_SWEETDAWN := $(OBJ)/core/sweetdawn.o
+CORE_CONTROL   := $(OBJ)/core/control.o
 
 # Arbre des commandes AML (Settings, Alarm, Light, ...).
 COMMANDS := $(OBJ)/command/command.o \
@@ -53,6 +55,12 @@ COMMANDS := $(OBJ)/command/command.o \
 # Serveur IPC : socket Unix et messages JSON.
 IPC := $(OBJ)/ipc/ipc_protocol.o \
        $(OBJ)/ipc/ipc_server.o
+
+# Commandes IPC du service : relie l'arbre des commandes à core/control.
+HANDLERS := $(OBJ)/app/handlers.o
+
+# Faux AML pour les tests : remplace aml/transport.c et core/config.c.
+FAKE_AML := $(OBJ)/test/fake_aml.o
 
 
 # ----------------------------------------------------------------------------
@@ -67,6 +75,7 @@ TESTS := $(BIN)/test_protocol \
          $(BIN)/test_command \
          $(BIN)/test_aml_commands \
          $(BIN)/test_sweetdawn \
+         $(BIN)/test_handlers \
          $(BIN)/test_ipc
 
 .PHONY: all test clean rebuild
@@ -80,10 +89,10 @@ $(BIN)/sweetdawn: $(OBJ)/app/cli.o \
 	$(CC) $^ $(JSON_LIBS) $(BLUETOOTH_LIBS) -o $@
 
 # Service : cœur complet + serveur IPC.
-$(BIN)/sweetdawn-service: $(OBJ)/app/service.o \
+$(BIN)/sweetdawn-service: $(OBJ)/app/service.o $(HANDLERS) \
                           $(AML_PROTOCOL) $(AML_TRANSPORT) \
                           $(CORE_CONFIG) $(CORE_STATE) $(CORE_SWEETDAWN) \
-                          $(COMMANDS) $(IPC)
+                          $(CORE_CONTROL) $(COMMANDS) $(IPC)
 	$(CC) $^ $(JSON_LIBS) $(BLUETOOTH_LIBS) -o $@
 
 
@@ -107,12 +116,17 @@ $(BIN)/test_command: $(OBJ)/test/test_command.o $(COMMANDS)
 $(BIN)/test_aml_commands: $(OBJ)/test/test_aml_commands.o $(COMMANDS)
 	$(CC) $^ -o $@
 
-# Le test fournit lui-même de faux aml_connect/aml_send/... et config_load :
-# transport.o et config.o ne sont donc volontairement PAS liés ici.
-$(BIN)/test_sweetdawn: $(OBJ)/test/test_sweetdawn.o \
+# Ces deux tests parlent au faux AML (FAKE_AML) : transport.o et config.o
+# ne sont donc volontairement PAS liés ici.
+$(BIN)/test_sweetdawn: $(OBJ)/test/test_sweetdawn.o $(FAKE_AML) \
                        $(CORE_SWEETDAWN) $(CORE_STATE) \
                        $(AML_PROTOCOL) $(COMMANDS)
 	$(CC) $^ -o $@
+
+$(BIN)/test_handlers: $(OBJ)/test/test_handlers.o $(FAKE_AML) $(HANDLERS) \
+                      $(CORE_CONTROL) $(CORE_SWEETDAWN) $(CORE_STATE) \
+                      $(AML_PROTOCOL) $(COMMANDS)
+	$(CC) $^ $(JSON_LIBS) -o $@
 
 $(BIN)/test_ipc: $(OBJ)/test/test_ipc.o $(IPC)
 	$(CC) $^ $(JSON_LIBS) -o $@

@@ -13,9 +13,9 @@
  *   Radio         FM : fréquence, canaux, volume, arrêt programmé
  *   Media Player  utilisation comme haut-parleur
  *
- * État actuel : l'arbre décrit les commandes et valide les valeurs,
- * mais aucune commande n'a encore de handler. Les relier aux trames
- * du protocole est l'étape 4 du TODO.
+ * L'arbre décrit les commandes et valide les valeurs, sans savoir les
+ * exécuter : les handlers sont attachés par le service (app/handlers.c),
+ * qui les relie aux fonctions de core/control.c.
  */
 
 #include "command/registry.h"

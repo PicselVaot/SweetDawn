@@ -55,24 +55,100 @@
 #define AML_FRAME_DATA_OFFSET  8
 
 /*
- * Commandes connues.
+ * Codes des commandes.
  *
- * Chaque requête reçoit une réponse portant un code différent :
- * c'est ce code qui permet de reconnaître la bonne réponse.
+ * Source : application Android d'origine (SunBeam, décompilée), classe
+ * ResponseCode et classes *Cmd. Le détail des données de chaque
+ * commande est dans docs/PROTOCOL.md.
  *
- * Statut : la requête porte un argument (0x16). La réponse contient
- * un octet d'autorisation : 0x16 (22) signifie que le contrôle de
- * l'AML est accordé.
- *
- * Paramètres : la réponse contient cinq octets, dans l'ordre
- * display, date, time, feedback, fade (voir core/state.h).
+ * Chaque requête AML_REQ_X reçoit, si elle en a une, une réponse
+ * AML_RSP_X portant un code différent : c'est ce code qui permet de
+ * reconnaître la bonne réponse. Les commandes sans AML_RSP_X ne
+ * reçoivent aucune réponse (l'application d'origine n'en attend pas).
  */
-#define AML_REQUEST_STATUS        0x00
-#define AML_REQUEST_STATUS_ARG    0x16
-#define AML_RESPONSE_STATUS       0xF0
 
-#define AML_REQUEST_SETTINGS      0x12
-#define AML_RESPONSE_SETTINGS     0xE2
+/* Appareil et réglages généraux. */
+#define AML_REQ_STATUS             0x00  /* autorisation de contrôle      */
+#define AML_RSP_STATUS             0xF0
+#define AML_REQ_SYNC_TIME          0x01  /* mise à l'heure                */
+#define AML_RSP_SYNC_TIME          0xF1
+#define AML_REQ_WRITE_SETTINGS     0x02  /* écrit les 5 réglages          */
+#define AML_RSP_WRITE_SETTINGS     0xF2
+#define AML_REQ_READ_SETTINGS      0x12  /* lit les 5 réglages            */
+#define AML_RSP_READ_SETTINGS      0xE2
+
+/* Alarmes. */
+#define AML_REQ_ALARM              0x03  /* lecture ou écriture d'une alarme */
+#define AML_RSP_ALARM              0xF3
+#define AML_REQ_ALARM_STATUS       0x25
+#define AML_RSP_ALARM_STATUS       0xC5
+#define AML_REQ_ALARM_SNOOZE       0x28
+#define AML_RSP_ALARM_SNOOZE       0xC8
+#define AML_REQ_ALARM_STOP         0x29
+#define AML_RSP_ALARM_STOP         0xC9
+
+/* Éclairage : Light (lampe principale) et Mood (ambiance). */
+#define AML_REQ_LIGHT_QUERY        0x30
+#define AML_RSP_LIGHT_QUERY        0xD0
+#define AML_REQ_LIGHT_BRIGHTNESS   0x31  /* sans réponse */
+#define AML_REQ_MOOD_COLOR         0x32  /* sans réponse */
+#define AML_REQ_LIGHT_TIMER        0x33  /* sans réponse */
+#define AML_REQ_MOOD_SCENE         0x34  /* sans réponse */
+#define AML_REQ_LIGHT_OFF          0x35  /* sans réponse */
+#define AML_REQ_LIGHT_TIMER_OFF    0x36  /* sans réponse */
+#define AML_REQ_LIGHT_ON           0x37  /* sans réponse */
+#define AML_REQ_LIGHT_TIMER_ON     0x38  /* sans réponse */
+
+/* Cible des commandes d'éclairage (premier octet de données). */
+#define AML_LIGHT_TARGET_LIGHT     0x01
+#define AML_LIGHT_TARGET_MOOD      0x02
+
+/* Radio FM. */
+#define AML_REQ_RADIO_LIST         0x04  /* liste des présélections */
+#define AML_RSP_RADIO_LIST         0xF4
+#define AML_REQ_RADIO_QUERY        0x07
+#define AML_RSP_RADIO_QUERY        0xF7
+#define AML_REQ_RADIO_ENABLE       0x08
+#define AML_RSP_RADIO_ENABLE       0xF8
+#define AML_REQ_RADIO_PRESET       0x09
+#define AML_RSP_RADIO_PRESET       0xF9
+#define AML_REQ_RADIO_TUNE         0x0A
+#define AML_RSP_RADIO_TUNE         0xFA
+#define AML_REQ_RADIO_VOLUME       0x0B  /* sans réponse */
+#define AML_REQ_RADIO_TIMER_ENABLE 0x0C  /* sans réponse */
+#define AML_REQ_RADIO_TIMER        0x0D  /* sans réponse */
+#define AML_REQ_RADIO_SAVE_PRESET  0x0E
+#define AML_RSP_RADIO_SAVE_PRESET  0xFE
+
+/* Haut-parleur Bluetooth (Media Player). */
+#define AML_REQ_A2DP_STATUS        0x0F
+#define AML_RSP_A2DP_STATUS        0xFF
+#define AML_REQ_SPEAKER_ON         0x10
+#define AML_RSP_SPEAKER_ON         0xE0
+#define AML_REQ_MUSIC_VOLUME       0x14  /* sans réponse */
+#define AML_REQ_MUSIC_TIMER_ENABLE 0x15
+#define AML_RSP_MUSIC_TIMER_ENABLE 0xE5
+#define AML_REQ_MUSIC_TIMER        0x16  /* sans réponse */
+#define AML_REQ_MUSIC_QUERY        0x17
+#define AML_RSP_MUSIC_QUERY        0xE7
+#define AML_REQ_SPEAKER_OFF        0x24  /* sans réponse */
+
+/*
+ * Messages spontanés : l'AML les envoie de lui-même, sans requête.
+ * Pas encore exploités (étape 5 du TODO).
+ */
+#define AML_EVT_SUNRISE_START      0xC6
+#define AML_EVT_ALARM_RING         0xC7
+#define AML_EVT_LIGHT_REFRESH      0xCA
+#define AML_EVT_LIGHT_TIMER_END    0xEB
+#define AML_EVT_MOOD_TIMER_END     0xEC
+#define AML_EVT_RADIO_TIMER_END    0xED
+#define AML_EVT_MUSIC_TIMER_END    0xEE
+
+/* Argument fixe de la requête de statut ; 0x16 est aussi la valeur
+ * d'autorisation renvoyée quand le contrôle est accordé. */
+#define AML_STATUS_ARG             0x16
+#define AML_AUTHORIZATION_GRANTED  0x16
 
 /*
  * Taille maximale d'une trame :

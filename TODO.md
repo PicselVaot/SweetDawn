@@ -19,6 +19,8 @@ Turn SweetDawn into a persistent background service that centralizes Bluetooth c
 | [ ] | 7. systemd Service | Ensure SweetDawn runs continuously | Automatic startup, graceful shutdown, accessible logs, and configurable restart policy |
 | [ ] | 8. Documentation | Document installation, configuration, and usage | README, example configuration, and troubleshooting instructions are up to date |
 
+> **Step 4 status:** every AML command is reachable through IPC and tested against a fake device; reads and acknowledged writes are verified on the real AML005. Remaining: a CLI client that talks to the service (today, `nc -U` is used), and checking the visible effect of unacknowledged commands (light, radio volume...) on the device.
+>
 > **Step 1 status:** request, response, and error formats are implemented and documented in the README. The event format remains to be defined; it will be completed together with step 5.
 
 ## Technical Requirements

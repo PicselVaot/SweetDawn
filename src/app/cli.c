@@ -107,7 +107,7 @@ static int envoyer_requete(
 /* Demande le statut et affiche l'octet d'autorisation reçu. */
 static int demander_statut(AmlConnection *connection)
 {
-    const uint8_t argument = AML_REQUEST_STATUS_ARG;
+    const uint8_t argument = AML_STATUS_ARG;
     uint8_t response[RESPONSE_BUFFER_SIZE];
     size_t response_length = 0;
 
@@ -115,7 +115,7 @@ static int demander_statut(AmlConnection *connection)
 
     if (envoyer_requete(
             connection,
-            AML_REQUEST_STATUS,
+            AML_REQ_STATUS,
             &argument,
             sizeof(argument),
             response,
@@ -126,7 +126,7 @@ static int demander_statut(AmlConnection *connection)
 
     /* Format de la réponse : voir aml/protocol.h. */
     if (response_length < AML_FRAME_DATA_OFFSET + 1 ||
-        response[AML_FRAME_CODE_OFFSET] != AML_RESPONSE_STATUS) {
+        response[AML_FRAME_CODE_OFFSET] != AML_RSP_STATUS) {
         fprintf(stderr, "Erreur : réponse de statut AML005 inattendue.\n");
         return -1;
     }
@@ -153,7 +153,7 @@ static int demander_parametres(
 
     if (envoyer_requete(
             connection,
-            AML_REQUEST_SETTINGS,
+            AML_REQ_READ_SETTINGS,
             NULL,
             0,
             response,
@@ -167,7 +167,7 @@ static int demander_parametres(
      * FE EF 0C 0D AB BB 08 E2 display date time feedback fade XX 55 0D 0A
      */
     if (response_length < AML_FRAME_DATA_OFFSET + 6 ||
-        response[AML_FRAME_CODE_OFFSET] != AML_RESPONSE_SETTINGS) {
+        response[AML_FRAME_CODE_OFFSET] != AML_RSP_READ_SETTINGS) {
         fprintf(stderr, "Erreur : réponse de paramètres AML005 inattendue.\n");
         return -1;
     }

@@ -58,7 +58,13 @@ static void tester_structure(AmlCommandTree *tree)
     assert(chercher(tree, "Mood/Scene") != NULL);
     assert(chercher(tree, "Mood/Timer duration") != NULL);
 
-    assert(chercher(tree, "Radio/Set") != NULL);
+    /* Le protocole ne permet pas de choisir une fréquence directement. */
+    assert(chercher(tree, "Radio/Set") == NULL);
+
+    assert(chercher(tree, "Settings/Sync time") != NULL);
+    assert(chercher(tree, "Alarm/Stop") != NULL);
+    assert(chercher(tree, "Alarm/Snooze") != NULL);
+    assert(chercher(tree, "Media Player/Enable") != NULL);
     assert(chercher(tree, "Radio/Channel") != NULL);
     assert(chercher(tree, "Radio/Volume") != NULL);
     assert(chercher(tree, "Radio/<<") != NULL);
@@ -127,21 +133,27 @@ static void tester_entiers(AmlCommandTree *tree)
     puts("[OK] Validation des entiers et des bornes");
 }
 
-static void tester_nombres(AmlCommandTree *tree)
+/*
+ * Les textes libres (HH:MM, R,G,B) sont acceptés par l'arbre ; leur
+ * format est vérifié par les handlers du service. Les actions, elles,
+ * n'acceptent aucune valeur.
+ */
+static void tester_textes_et_actions(AmlCommandTree *tree)
 {
-    Command *frequency = chercher(tree, "Radio/Set");
+    Command *time = chercher(tree, "Alarm/Alarm 1/Time");
+    Command *color = chercher(tree, "Mood/Color");
+    Command *stop = chercher(tree, "Alarm/Stop");
+    Command *seek = chercher(tree, "Radio/>>");
 
-    assert(frequency != NULL);
+    assert(time != NULL && color != NULL && stop != NULL && seek != NULL);
 
-    assert(command_validate_value(frequency, "87.5", NULL, 0) == 0);
-    assert(command_validate_value(frequency, "99.9", NULL, 0) == 0);
-    assert(command_validate_value(frequency, "108.0", NULL, 0) == 0);
+    assert(command_validate_value(time, "07:30", NULL, 0) == 0);
+    assert(command_validate_value(color, "255,128,0", NULL, 0) == 0);
 
-    assert(command_validate_value(frequency, "87.4", NULL, 0) != 0);
-    assert(command_validate_value(frequency, "108.1", NULL, 0) != 0);
-    assert(command_validate_value(frequency, "radio", NULL, 0) != 0);
+    assert(command_validate_value(stop, "1", NULL, 0) != 0);
+    assert(command_validate_value(seek, "up", NULL, 0) != 0);
 
-    puts("[OK] Validation de la fréquence radio");
+    puts("[OK] Textes libres et actions");
 }
 
 static void tester_choix(AmlCommandTree *tree)
@@ -202,7 +214,7 @@ int main(void)
     tester_structure(&tree);
     tester_booleens(&tree);
     tester_entiers(&tree);
-    tester_nombres(&tree);
+    tester_textes_et_actions(&tree);
     tester_choix(&tree);
 
     aml_commands_clear(&tree);

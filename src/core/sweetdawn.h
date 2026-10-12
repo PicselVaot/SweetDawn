@@ -111,6 +111,45 @@ int sweetdawn_init(
     size_t error_capacity
 );
 
+/* Valeur de expected_code pour une commande qui n'a pas de réponse. */
+#define SWEETDAWN_NO_RESPONSE (-1)
+
+/*
+ * Envoie une requête à l'AML et attend sa réponse.
+ *
+ * request_code  : code de la commande (AML_REQ_* dans aml/protocol.h).
+ * arguments     : données de la commande, sans l'enveloppe de trame
+ *                 (NULL si arguments_length vaut 0).
+ * expected_code : code de la réponse attendue (AML_RSP_*), ou
+ *                 SWEETDAWN_NO_RESPONSE si l'AML ne répond pas à cette
+ *                 commande : la fonction revient dès l'envoi réussi.
+ * timeout_ms    : délai d'attente de la réponse ; 0 = délai par défaut
+ *                 (5 s).
+ * response      : reçoit la trame de réponse complète ; les données
+ *                 commencent à response[AML_FRAME_DATA_OFFSET].
+ *                 Peut être NULL avec SWEETDAWN_NO_RESPONSE.
+ *
+ * Retour :
+ *   0                    : succès ;
+ *   AML_ERR_DISCONNECTED : pas de liaison en ce moment ;
+ *   AML_ERR_TIMEOUT      : pas de réponse dans le délai ;
+ *   autre AML_ERR_*      : erreur de transport ou de trame.
+ *
+ * En cas d'échec, la supervision de la liaison est mise à jour
+ * automatiquement (voir sweetdawn_tick).
+ */
+int sweetdawn_request(
+    SweetDawn *app,
+    uint8_t request_code,
+    const uint8_t *arguments,
+    size_t arguments_length,
+    int expected_code,
+    int timeout_ms,
+    uint8_t *response,
+    size_t response_capacity,
+    size_t *response_length
+);
+
 /* Établit la connexion Bluetooth avec l'appareil sélectionné. */
 int sweetdawn_connect(SweetDawn *app);
 
