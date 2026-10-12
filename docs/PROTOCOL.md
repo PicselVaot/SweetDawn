@@ -120,6 +120,35 @@ Fréquence : entier sur 2 octets, poids fort d'abord, en dixièmes de MHz (`03 F
 | `15` minuteur actif | `E5` | 1 / 0 | succès |
 | `16` durée du minuteur | — | minutes | |
 
+## Correspondance requête / réponse
+
+Le code de réponse se déduit du code de requête :
+
+| Requêtes | Réponse |
+|---|---|
+| `0X` | `FX` |
+| `1X` | `EX` |
+| `2X` | `CX` |
+| `3X` | `DX` |
+
+Les messages spontanés suivent la même règle : `C7` (alarme) est la réponse de `27`, `EB` celle de `1B`, etc.
+
+## Codes trouvés par exploration
+
+Le 12/10/2026, tous les codes que l'application n'utilise pas, de `00` à `7F`, ont été envoyés sans données au matériel. Après chacun, l'état complet a été relu. Seuls ceux-ci ont répondu ✔ :
+
+| Requête | Réponse | Données reçues | Interprétation |
+|---|---|---|---|
+| `05` | `F5` | `01` | inconnue |
+| `06` | `F6` | `00` | inconnue |
+| `11` | `E1` | `01` | inconnue (ce n'est pas l'heure) |
+| `20` | `C0` | comme `07` | état de la radio |
+| `21` | `C1` | comme `17` | état de la musique ; **a changé la durée du minuteur musique** (1 → 10) |
+| `22` | `C2` | comme `30 01` | état de Light |
+| `23` | `C3` | comme `30 02`, mais premier octet `01` | état de Mood |
+
+Aucune autre réponse, et aucun autre changement d'état, entre `00` et `7F`. **Aucune commande ne permet de relire l'heure de l'AML.** Ces codes ont été essayés sans données uniquement : avec des données, certains pourraient se comporter autrement.
+
 ## Messages spontanés
 
 Envoyés par l'AML sans requête (pas encore exploités par SweetDawn) :
