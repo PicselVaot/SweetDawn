@@ -165,6 +165,19 @@ Still on 12/10/2026, in the dark with the lights off, each unknown code from `00
 
 **No known command reads back the AML clock, or sets the display brightness other than with L / H / A.**
 
+On 26/11/2026, with the service running and `Raw`, more probes found nothing new; the state was read back after each one:
+
+- **Selector variants of the known reads**: alarm read `03` answers only for indexes `81` and `87` (tried `80` to `8F`); light read `30` only for targets `01` and `02` (tried `00` to `05`); the preset list `04` only looks at its first byte (`01` reads, `00` writes, anything else gets no answer); `07`, `12` and `17` ignore their data.
+- **Codes `80` to `FF` without data**: no answer, no change of state. With the probes of 12/10/2026, all 256 codes have now been tried without data.
+- **Write attempts** following the `04` pattern (direction byte `00`, then a full state): `20`, `21`, `22`, `23` only read; `30 00 …` gets no answer; `05`, `06` and `11` with a value keep returning `01`, `00`, `01`.
+
+## Display and buttons
+
+Observed on 26/11/2026:
+
+- **The device buttons are ignored while a Bluetooth connection is open** ✔. Disconnected, ▲ / ▼ change the volume, Mode turns the radio off and 🔔 beeps; connected, nothing happens. While the SweetDawn service runs, it keeps the connection open, so the buttons are inactive.
+- **The display brightness setting (`display`) has no visible effect** — *to be confirmed*. Every value tried, `00` to `09`, `0A`, `10`, `20`, `40`, `64`, `7F`, `80`, `C8` and `FF`, is accepted and read back, and keeps across a power cut, but the display did not change, whether the value was written while running or present at power-on. A phone flashlight did not change it either, so no ambient light sensor seemed active. The test device is old and its display is faint; it once went completely dark and only came back after unplugging the device: **this unit may be defective**, and another AML005 may behave differently.
+
 ## Spontaneous messages
 
 Sent by the AML without a request, once the handshake is done. SweetDawn turns them into events for its clients (`src/app/handlers.c`, [events](https://github.com/PicselVaot/SweetDawn/wiki/IPC-protocol#events) in the wiki):

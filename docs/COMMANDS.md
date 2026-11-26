@@ -29,7 +29,7 @@ This list comes from the tree defined in [`src/command/aml_commands.c`](../src/c
 | Command | Value | Effect |
 |---|---|---|
 | `Settings` | — | **Reading**: `display_brightness`, `display_time`, `time`, `feedback`, `fade` |
-| `Settings/Display brightness` | `L`, `H`, `A` | Display brightness: low, high, automatic |
+| `Settings/Display brightness` | `L`, `H`, `A` | Display brightness: low, high, automatic (no visible effect on the test device, to be confirmed: see [PROTOCOL.md](PROTOCOL.md#display-and-buttons)) |
 | `Settings/Display time` | `24`, `12` | Format of the displayed time |
 | `Settings/Time` | `auto`, `manual` | Time mode; `auto` also sets the AML clock |
 | `Settings/Feedback` | `true`, `false` | Button beep |
