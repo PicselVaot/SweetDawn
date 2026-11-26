@@ -476,6 +476,113 @@ int control_radio_preset(SweetDawn *app, uint8_t channel)
                     AML_RSP_RADIO_PRESET, 0, 0, &reponse);
 }
 
+/*
+ * Sans argument, comme dans l'application d'origine (SavePresetCmd) :
+ * l'AML range la fréquence en cours dans la présélection en cours.
+ */
+int control_radio_save_preset(SweetDawn *app)
+{
+    Reponse reponse;
+
+    return demander(app, AML_REQ_RADIO_SAVE_PRESET, NULL, 0,
+                    AML_RSP_RADIO_SAVE_PRESET, 0, 0, &reponse);
+}
+
+/*
+ * Liste des présélections (04). Premier octet : 01 = lecture (suivi de 02,
+ * comme l'application d'origine), 00 = écriture (trouvé le 26/11/2026).
+ * Données, en lecture comme en écriture : sens, radio allumée, 10 fréquences
+ * sur 2 octets, volume, minuteur actif, durée.
+ */
+#define RADIO_LIST_WRITE 0x00
+#define RADIO_LIST_READ  0x01
+#define RADIO_LIST_SIZE  (2 + 2 * CONTROL_RADIO_PRESET_COUNT + 3)
+
+int control_radio_presets_query(SweetDawn *app, ControlRadioPresets *presets)
+{
+    Reponse reponse;
+    const uint8_t args[] = { RADIO_LIST_READ, 0x02 };
+
+    if (app == NULL || presets == NULL)
+        return AML_ERR_GENERIC;
+
+    int code = demander(app, AML_REQ_RADIO_LIST, args, sizeof(args),
+                        AML_RSP_RADIO_LIST, 0, RADIO_LIST_SIZE, &reponse);
+
+    if (code != 0)
+        return code;
+
+    const uint8_t *d = reponse.data;
+
+    presets->enable = d[1] == 1;
+    for (int i = 0; i < CONTROL_RADIO_PRESET_COUNT; i++)
+        presets->frequency[i] = (uint16_t)((d[2 + 2 * i] << 8) | d[3 + 2 * i]);
+    presets->volume = d[22];
+    presets->timer_enable = d[23] == 1;
+    presets->timer_minutes = d[24];
+
+    return 0;
+}
+
+int control_radio_presets_write(SweetDawn *app,
+                                const ControlRadioPresets *presets)
+{
+    uint8_t args[RADIO_LIST_SIZE];
+
+    if (app == NULL || presets == NULL)
+        return AML_ERR_GENERIC;
+
+    args[0] = RADIO_LIST_WRITE;
+    args[1] = presets->enable ? 1 : 0;
+    for (int i = 0; i < CONTROL_RADIO_PRESET_COUNT; i++) {
+        args[2 + 2 * i] = (uint8_t)(presets->frequency[i] >> 8);
+        args[3 + 2 * i] = (uint8_t)(presets->frequency[i] & 0xFF);
+    }
+    args[22] = presets->volume;
+    args[23] = presets->timer_enable ? 1 : 0;
+    args[24] = presets->timer_minutes;
+
+    return envoyer(app, AML_REQ_RADIO_LIST, args, sizeof(args));
+}
+
+int control_radio_set_frequency(SweetDawn *app, uint16_t frequency)
+{
+    ControlRadioPresets avant;
+    ControlRadioPresets modifiee;
+    ControlRadio radio;
+    int code;
+
+    if (app == NULL || frequency < 875 || frequency > 1080)
+        return AML_ERR_GENERIC;
+
+    code = control_radio_presets_query(app, &avant);
+    if (code != 0)
+        return code;
+
+    code = control_radio_query(app, &radio);
+    if (code != 0)
+        return code;
+
+    /* Présélection 0 : emplacement caché à fréquence invalide, à éviter. */
+    uint8_t slot = radio.channel >= 1 && radio.channel <= 10 ? radio.channel : 1;
+
+    /* L'octet « allumée » de la liste agit sur la radio : garder son état. */
+    avant.enable = radio.enable;
+    modifiee = avant;
+    modifiee.frequency[slot - 1] = frequency;
+
+    code = control_radio_presets_write(app, &modifiee);
+    if (code != 0)
+        return code;
+
+    code = control_radio_preset(app, slot);
+
+    /* Remettre la liste d'origine, même si le rappel a échoué. */
+    int restore = control_radio_presets_write(app, &avant);
+
+    return code != 0 ? code : restore;
+}
+
 int control_radio_volume(SweetDawn *app, uint8_t volume)
 {
     const uint8_t args[] = { volume };

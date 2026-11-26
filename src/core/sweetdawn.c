@@ -488,6 +488,99 @@ int sweetdawn_request(
 }
 
 /*
+ * Requête brute : envoie, puis garde tout ce qui arrive pendant listen_ms.
+ */
+int sweetdawn_raw(
+    SweetDawn *app,
+    uint8_t request_code,
+    const uint8_t *arguments,
+    size_t arguments_length,
+    int listen_ms,
+    SweetDawnRawFrame *frames,
+    size_t capacity,
+    size_t *count
+)
+{
+    uint8_t request[REQUEST_BUFFER_SIZE];
+    size_t request_length = 0;
+    int64_t deadline;
+    int code;
+
+    if (app == NULL || !app->initialized || count == NULL ||
+        (frames == NULL && capacity > 0))
+        return AML_ERR_GENERIC;
+
+    *count = 0;
+
+    if (!app->connected)
+        return AML_ERR_DISCONNECTED;
+
+    if (listen_ms <= 0)
+        listen_ms = 1500;
+
+    if (protocol_build_request(
+            request_code,
+            arguments,
+            arguments_length,
+            request,
+            sizeof(request),
+            &request_length) != 0)
+        return AML_ERR_GENERIC;
+
+    /* Partir d'une liaison propre, comme pour une requête normale. */
+    lire_evenements(app);
+
+    if (!app->connected)
+        return AML_ERR_DISCONNECTED;
+
+    code = aml_send(&app->connection, request, request_length);
+
+    if (code != 0) {
+        traiter_echec_liaison(app, code);
+        return code;
+    }
+
+    deadline = maintenant(app) + listen_ms;
+
+    for (;;) {
+        int64_t remaining = deadline - maintenant(app);
+        SweetDawnRawFrame scratch;
+        SweetDawnRawFrame *frame;
+
+        if (remaining <= 0)
+            break;
+
+        frame = *count < capacity ? &frames[*count] : &scratch;
+
+        code = aml_receive(
+            &app->connection,
+            frame->data,
+            sizeof(frame->data),
+            &frame->length,
+            (int)remaining
+        );
+
+        /* Plus rien à lire : c'est la fin normale de l'écoute. */
+        if (code == AML_ERR_TIMEOUT)
+            break;
+
+        if (code != 0) {
+            traiter_echec_liaison(app, code);
+            return code;
+        }
+
+        /* Un message spontané garde aussi son chemin habituel. */
+        transmettre_evenement(app, frame->data, frame->length);
+
+        if (frame != &scratch)
+            (*count)++;
+    }
+
+    app->consecutive_failures = 0;
+    return 0;
+}
+
+/*
  * Initialise les ressources du cœur applicatif.
  */
 int sweetdawn_init(

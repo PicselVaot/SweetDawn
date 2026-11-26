@@ -573,6 +573,84 @@ static void test_radio(void)
     requete("Radio/Volume", "[4]");
     CHECK(code_envoye(1) == 0x0B && donnees_envoyees(1)[0] == 4,
           "Radio/Volume 4 envoie 0B 04");
+
+    fake_push_response(0xFE, NULL, 0);
+    requete("Radio/Save", "[]");
+    CHECK(last_rc == 0 && code_envoye(2) == 0x0E,
+          "Radio/Save envoie 0E et attend FE");
+}
+
+static void test_radio_frequence(void)
+{
+    printf("\n[6b] Radio : fréquence directe, présélections, trame brute\n");
+    connecter();
+
+    /* Liste : sens, allumée, 10 fréquences (88.7, 89.2, puis 0), vol, minuteur. */
+    uint8_t liste[25] = { 0x01, 0x01, 0x03, 0x77, 0x03, 0x7C };
+    liste[22] = 6;
+    liste[24] = 10;
+    /* Radio : allumée, présélection 2, 88.7, volume 6. */
+    const uint8_t radio[] = { 1, 2, 0x03, 0x77, 6, 0, 10 };
+    const uint8_t radio_apres[] = { 1, 2, 0x04, 0x0D, 6, 0, 10 };
+
+    fake_push_response(0xF4, liste, sizeof(liste));
+    fake_push_response(0xF7, radio, sizeof(radio));
+    fake_push_response(0xF9, NULL, 0);
+    fake_push_response(0xF7, radio_apres, sizeof(radio_apres));
+
+    requete("Radio/Frequency", "[103.7]");
+
+    CHECK(last_rc == 0 && code_envoye(0) == 0x04 && donnees_envoyees(0)[0] == 0x01 &&
+          code_envoye(1) == 0x07,
+          "lit les présélections (04 01 02) et la radio (07)");
+    CHECK(code_envoye(2) == 0x04 && donnees_envoyees(2)[0] == 0x00 &&
+          donnees_envoyees(2)[1] == 1 &&
+          donnees_envoyees(2)[2 + 2] == 0x04 && donnees_envoyees(2)[3 + 2] == 0x0D,
+          "écrit 103.7 dans la présélection en cours (2), radio laissée allumée");
+    CHECK(code_envoye(3) == 0x09 && donnees_envoyees(3)[0] == 2,
+          "rappelle la présélection 2 (09 02)");
+    CHECK(code_envoye(4) == 0x04 && donnees_envoyees(4)[0] == 0x00 &&
+          donnees_envoyees(4)[4] == 0x03 && donnees_envoyees(4)[5] == 0x7C,
+          "réécrit la liste d'origine (présélection 2 = 89.2)");
+
+    struct json_object *frequency = NULL;
+    json_object_object_get_ex(last_result, "frequency", &frequency);
+    CHECK(frequency != NULL && json_object_get_double(frequency) > 103.69 &&
+          json_object_get_double(frequency) < 103.71,
+          "renvoie la nouvelle fréquence 103.7");
+
+    requete("Radio/Frequency", "[120]");
+    CHECK(strcmp(last_error, "INVALID_VALUE") == 0, "120 MHz refusé");
+
+    fake_push_response(0xF4, liste, sizeof(liste));
+    requete("Radio/Presets", "[]");
+    struct json_object *presets = NULL;
+    json_object_object_get_ex(last_result, "presets", &presets);
+    CHECK(presets != NULL && json_object_array_length(presets) == 10 &&
+          json_object_get_double(json_object_array_get_idx(presets, 1)) > 89.19 &&
+          json_object_get_double(json_object_array_get_idx(presets, 1)) < 89.21,
+          "Radio/Presets : 10 fréquences, la 2e à 89.2");
+
+    const uint8_t reponse_brute[] = { 0x01, 0x02 };
+    fake_push_response(0xF5, reponse_brute, sizeof(reponse_brute));
+    int avant = fake_sent_count;
+    requete("Raw", "[\"05 aa\"]");
+    struct json_object *responses = NULL, *r0 = NULL, *code = NULL, *data = NULL;
+    json_object_object_get_ex(last_result, "responses", &responses);
+    if (responses != NULL && json_object_array_length(responses) == 1) {
+        r0 = json_object_array_get_idx(responses, 0);
+        json_object_object_get_ex(r0, "code", &code);
+        json_object_object_get_ex(r0, "data", &data);
+    }
+    CHECK(last_rc == 0 && fake_sent_count == avant + 1 &&
+          code_envoye(avant) == 0x05 && donnees_envoyees(avant)[0] == 0xAA,
+          "Raw envoie le code 05 avec la donnée AA");
+    CHECK(code != NULL && strcmp(json_object_get_string(code), "F5") == 0 &&
+          strcmp(json_object_get_string(data), "01 02") == 0,
+          "Raw renvoie la réponse F5 : 01 02");
+
+    requete("Raw", "[\"zz\"]");
+    CHECK(strcmp(last_error, "INVALID_VALUE") == 0, "Raw refuse ce qui n'est pas de l'hexadécimal");
 }
 
 static void test_erreurs_aml(void)
@@ -614,6 +692,7 @@ int main(void)
     test_reglages();
     test_alarme();
     test_radio();
+    test_radio_frequence();
     test_erreurs_aml();
     test_commands();
     test_heure();

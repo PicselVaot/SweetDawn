@@ -173,6 +173,36 @@ int control_radio_tune(SweetDawn *app, ControlTune direction,
 /* channel : 1 à 10. */
 int control_radio_preset(SweetDawn *app, uint8_t channel);
 
+/* Enregistre la fréquence en cours dans la présélection en cours. */
+int control_radio_save_preset(SweetDawn *app);
+
+#define CONTROL_RADIO_PRESET_COUNT 10
+
+/* Les 10 présélections (fréquences en dixièmes de MHz) et l'état associé. */
+typedef struct {
+    bool enable;                                    /* radio allumée */
+    uint16_t frequency[CONTROL_RADIO_PRESET_COUNT];
+    uint8_t volume;
+    bool timer_enable;
+    uint8_t timer_minutes;
+} ControlRadioPresets;
+
+int control_radio_presets_query(SweetDawn *app, ControlRadioPresets *presets);
+
+/*
+ * Écrit les 10 présélections d'un coup (commande sans réponse). Attention :
+ * enable allume ou éteint aussi la radio.
+ */
+int control_radio_presets_write(SweetDawn *app,
+                                const ControlRadioPresets *presets);
+
+/*
+ * Règle directement la fréquence (dixièmes de MHz, 875 à 1080) sans toucher
+ * aux présélections : la fréquence est écrite dans la présélection en cours,
+ * rappelée, puis la liste d'origine est réécrite.
+ */
+int control_radio_set_frequency(SweetDawn *app, uint16_t frequency);
+
 /* Commandes sans réponse. */
 int control_radio_volume(SweetDawn *app, uint8_t volume);
 int control_radio_timer_enable(SweetDawn *app, bool enable);

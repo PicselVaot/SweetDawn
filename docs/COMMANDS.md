@@ -109,11 +109,25 @@ Exemples : du lundi au vendredi = 2 + 4 + 8 + 16 + 32 = **62** ; le week-end = 1
 | `Radio/>>` | — | **Action** : cherche la station suivante |
 | `Radio/<<` | — | **Action** : cherche la station précédente |
 | `Radio/Channel` | 1 à 10 | Rappelle une présélection |
+| `Radio/Save` | — | **Action** : enregistre la fréquence en cours dans la présélection en cours |
+| `Radio/Frequency` | 87.5 à 108 | Règle directement la fréquence, en MHz ; les présélections ne changent pas |
+| `Radio/Presets` | — | **Action** : renvoie les fréquences des 10 présélections (`presets`) |
 | `Radio/Volume` | 1 à 10 | Volume |
 | `Radio/Sleep timer` | `true`, `false` | Arrêt programmé |
 | `Radio/Timer duration` | 1 à 60 | Délai avant l'arrêt, en minutes |
 
-Il n'existe pas de commande pour choisir directement une fréquence : le protocole de l'AML ne le permet pas.
+`Radio/Frequency` passe par la liste des présélections : la fréquence est écrite dans la présélection en cours, rappelée, puis la liste d'origine est remise. Les présélections ne changent donc pas, mais la fréquence écoutée ne correspond plus à la présélection affichée (comme après `Radio/>>`).
+
+**Enregistrer une station** : rappeler la présélection à remplacer (`Radio/Channel 3`), aller sur la station (`Radio/>>`, `Radio/<<`, `Radio/>`, `Radio/<`), puis `Radio/Save`.
+
+## Raw — trame brute
+
+| Commande | Valeur | Effet |
+|---|---|---|
+| `Raw` | octets hexadécimaux : code puis données | Envoie la trame (l'enveloppe est ajoutée), écoute 1,5 s et renvoie `sent` et `responses` (`code`, `data`, `frame` de chaque trame reçue) |
+
+Pour explorer le protocole sans arrêter le service, ex. `sweetdawn-ctl Raw "04 01 02"`. Aucune vérification : une trame
+mal choisie peut changer n'importe quel réglage de l'AML.
 
 ## Media Player — haut-parleur Bluetooth
 

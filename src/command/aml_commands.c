@@ -153,6 +153,25 @@ static int definir_entier(
 }
 
 /*
+ * Définit un nombre décimal avec limites inclusives.
+ */
+static int definir_nombre(
+    Command *command,
+    double minimum,
+    double maximum
+)
+{
+    CommandValueSpec spec = {
+        .type = COMMAND_VALUE_NUMBER,
+        .has_range = true,
+        .minimum = minimum,
+        .maximum = maximum
+    };
+
+    return command_set_value_spec(command, &spec);
+}
+
+/*
  * Définit une chaîne libre. Son format (HH:MM, R,G,B...) est vérifié
  * par le handler qui l'utilise.
  */
@@ -560,6 +579,31 @@ int aml_commands_init(AmlCommandTree *tree)
         goto erreur;
     }
 
+    if (
+        ajouter_commande(
+            tree, group, "Save",
+            "Enregistrer la fréquence en cours dans la présélection en cours"
+        ) == NULL
+    ) {
+        goto erreur;
+    }
+
+    command = ajouter_commande(
+        tree, group, "Frequency",
+        "Régler directement la fréquence en MHz (présélections conservées)"
+    );
+    if (command == NULL || definir_nombre(command, 87.5, 108.0) != 0) {
+        goto erreur;
+    }
+
+    if (
+        ajouter_commande(
+            tree, group, "Presets", "Lire les fréquences des 10 présélections"
+        ) == NULL
+    ) {
+        goto erreur;
+    }
+
     /*
      * Pas de commande « Set » : le protocole ne permet pas de choisir
      * directement une fréquence, seulement de la faire varier (<, >),
@@ -591,6 +635,20 @@ int aml_commands_init(AmlCommandTree *tree)
         tree, group, "Timer duration", "Durée avant l'arrêt en minutes"
     );
     if (command == NULL || definir_entier(command, 1, 60) != 0) {
+        goto erreur;
+    }
+
+    /* ============================== Raw ================================= */
+
+    /*
+     * Trame brute pour explorer le protocole : « code données... » en
+     * hexadécimal, ex. "04 01 02". Renvoie toutes les trames reçues.
+     */
+    command = ajouter_commande(
+        tree, root, "Raw",
+        "Envoyer une trame brute (hexadécimal : code puis données)"
+    );
+    if (command == NULL || definir_texte(command) != 0) {
         goto erreur;
     }
 

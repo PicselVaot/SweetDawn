@@ -89,6 +89,7 @@ RETIRED_DISCOVERY_TOPICS = [
     f"{DISCOVERY_PREFIX}/binary_sensor/aml005_alarm_active/config",  # devenu alarm_phase
     f"{DISCOVERY_PREFIX}/sensor/aml005_alarm_state/config",          # remplacé par alarm_phase
     f"{DISCOVERY_PREFIX}/binary_sensor/aml005_alarm_ringing/config", # remplacé par alarm_phase
+    f"{DISCOVERY_PREFIX}/sensor/aml005_radio_frequency/config",     # devenu un number réglable
 ] + [
     # Capteurs de lever de soleil d'un essai abandonné.
     f"{DISCOVERY_PREFIX}/{component}/aml005_{key}/config"
@@ -408,16 +409,21 @@ def build_entities():
     entities.append(number("radio_channel", "Radio preset", "Radio",
                            "Radio/Channel", ["channel"], 1, 10, mode="box",
                            icon="mdi:numeric"))
-    entities.append(Entity("sensor", "radio_frequency", "Radio frequency",
+    # Fréquence affichée et réglable directement (Radio/Frequency).
+    entities.append(Entity("number", "radio_frequency", "Radio frequency",
                            "Radio", {"": Channel(
-                               get=lambda c: text(value_in(c, "Radio", "frequency")))},
-                           {"unit_of_measurement": "MHz",
+                               get=lambda c: text(value_in(c, "Radio", "frequency")),
+                               set=lambda p, c: [("Radio/Frequency",
+                                                  f"{float(p):.1f}")])},
+                           {"min": 87.5, "max": 108.0, "step": 0.1, "mode": "box",
+                            "unit_of_measurement": "MHz",
                             "icon": "mdi:radio-tower"}))
     for key, name, path, icon in (
             ("radio_seek_up", "Radio seek next", "Radio/>>", "mdi:skip-next"),
             ("radio_seek_down", "Radio seek previous", "Radio/<<", "mdi:skip-previous"),
             ("radio_tune_up", "Radio tune up", "Radio/>", "mdi:chevron-right"),
-            ("radio_tune_down", "Radio tune down", "Radio/<", "mdi:chevron-left")):
+            ("radio_tune_down", "Radio tune down", "Radio/<", "mdi:chevron-left"),
+            ("radio_save", "Radio save preset", "Radio/Save", "mdi:content-save")):
         entities.append(button(key, name, path, group="Radio", icon=icon))
     entities.append(switch("radio_sleep", "Radio sleep timer", "Radio",
                            "Radio/Sleep timer", ["sleep_timer"], **config))

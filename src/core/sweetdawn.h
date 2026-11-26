@@ -29,6 +29,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "aml/protocol.h"
 #include "aml/transport.h"
 #include "command/aml_commands.h"
 #include "core/config.h"
@@ -187,6 +188,36 @@ int sweetdawn_request(
     uint8_t *response,
     size_t response_capacity,
     size_t *response_length
+);
+
+/* Une trame reçue par sweetdawn_raw, telle quelle. */
+typedef struct {
+    uint8_t data[AML_PROTOCOL_MAX_FRAME_SIZE];
+    size_t length;
+} SweetDawnRawFrame;
+
+/*
+ * Envoie une requête brute (code + données, l'enveloppe est ajoutée) et
+ * recueille toutes les trames reçues pendant listen_ms, quelles qu'elles
+ * soient. Sert à explorer le protocole sans arrêter le service.
+ *
+ * Contrairement à sweetdawn_request, l'absence de réponse n'est pas une
+ * erreur et ne compte pas comme un échec de liaison. Les messages
+ * spontanés reçus sont aussi transmis comme événements, comme d'habitude.
+ *
+ * frames  : tableau de capacity trames ; *count reçoit le nombre rempli
+ *           (les trames au-delà de capacity sont lues mais pas gardées).
+ * Retour  : 0, AML_ERR_DISCONNECTED, AML_ERR_GENERIC ou une erreur d'envoi.
+ */
+int sweetdawn_raw(
+    SweetDawn *app,
+    uint8_t request_code,
+    const uint8_t *arguments,
+    size_t arguments_length,
+    int listen_ms,
+    SweetDawnRawFrame *frames,
+    size_t capacity,
+    size_t *count
 );
 
 /*

@@ -104,10 +104,22 @@ Premier octet des commandes : la cible, `01` = Light (lampe principale), `02` = 
 | `0B` volume | — | 1–10 | |
 | `0C` minuteur actif | — | 1 / 0 | |
 | `0D` durée du minuteur | — | minutes | |
-| `04` liste des présélections | `F4` | `01 02` | 10 fréquences, volume, minuteur |
+| `04` lire les présélections ✔ | `F4` | `01 02` | sens, allumée, 10 fréquences, volume, minuteur actif, durée |
+| `04` écrire les présélections ✔ | — | `00`, allumée, 10 fréquences, volume, minuteur actif, durée | |
 | `0E` enregistrer présélection | `FE` | — | |
 
-Fréquence : entier sur 2 octets, poids fort d'abord, en dixièmes de MHz (`03 F7` = 1015 = 101,5 MHz). Il n'existe pas de commande pour choisir directement une fréquence.
+Fréquence : entier sur 2 octets, poids fort d'abord, en dixièmes de MHz (`03 F7` = 1015 = 101,5 MHz).
+
+**Choisir une fréquence** ✔ (trouvé le 26/11/2026, absent de l'application d'origine) : `04` avec `00` en premier
+octet **écrit** les 10 présélections (même disposition que la réponse de lecture, sans réponse de l'AML), puis `09 <n>`
+fait jouer la présélection n. SweetDawn s'en sert pour `Radio/Frequency` en remettant ensuite la liste d'origine.
+
+- L'octet « allumée » de l'écriture `04` allume ou éteint la radio : y mettre l'état actuel.
+- `04` avec `01` (ou `81`) en premier octet reste une lecture, quelles que soient les données qui suivent.
+- `09` lit seulement son premier octet ; `09 00` va sur une présélection 0 cachée (fréquence `01 00` = 25,6 MHz, invalide).
+- `08` suivi de données en trop éteint la radio.
+- `20` et `07` avec un état complet en données (fréquence valide comprise) se contentent de relire ; `0A` ignore les
+  modes autres que 0 et 1.
 
 ### Haut-parleur Bluetooth (Media Player)
 

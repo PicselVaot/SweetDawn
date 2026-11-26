@@ -23,11 +23,13 @@
 
 #include "app/handlers.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
+#include "aml/protocol.h"
 #include "command/registry.h"
 #include "core/control.h"
 
@@ -849,6 +851,66 @@ static int changer_frequence(const Command *command, int argc,
     return 0;
 }
 
+/* Radio/Save : fréquence en cours -> présélection en cours. */
+static int enregistrer_preselection(const Command *command, int argc,
+                                    const char *const argv[], void *context)
+{
+    HandlerContext *ctx = context;
+    (void)command;
+    (void)argc;
+    (void)argv;
+
+    return verifier(ctx, control_radio_save_preset(ctx->app));
+}
+
+/* Radio/Frequency : règle directement la fréquence, en MHz. */
+static int regler_frequence(const Command *command, int argc,
+                            const char *const argv[], void *context)
+{
+    HandlerContext *ctx = context;
+    ControlRadio radio;
+    (void)command;
+    (void)argc;
+
+    /* La valeur a été vérifiée (nombre entre 87.5 et 108) par le moteur. */
+    double mhz = strtod(argv[0], NULL);
+    uint16_t dixiemes = (uint16_t)(mhz * 10.0 + 0.5);
+
+    if (verifier(ctx, control_radio_set_frequency(ctx->app, dixiemes)) != 0)
+        return -1;
+
+    if (verifier(ctx, control_radio_query(ctx->app, &radio)) != 0)
+        return -1;
+
+    ctx->result = json_object_new_object();
+    json_object_object_add(ctx->result, "frequency",
+                           frequence_json(radio.frequency));
+    return 0;
+}
+
+/* Radio/Presets : les 10 fréquences enregistrées. */
+static int lire_preselections(const Command *command, int argc,
+                              const char *const argv[], void *context)
+{
+    HandlerContext *ctx = context;
+    ControlRadioPresets presets;
+    (void)command;
+    (void)argc;
+    (void)argv;
+
+    if (verifier(ctx, control_radio_presets_query(ctx->app, &presets)) != 0)
+        return -1;
+
+    struct json_object *list = json_object_new_array();
+
+    for (int i = 0; i < CONTROL_RADIO_PRESET_COUNT; i++)
+        json_object_array_add(list, frequence_json(presets.frequency[i]));
+
+    ctx->result = json_object_new_object();
+    json_object_object_add(ctx->result, "presets", list);
+    return 0;
+}
+
 /* Radio/<réglage>. */
 static int ecrire_radio(const Command *command, int argc,
                         const char *const argv[], void *context)
@@ -876,6 +938,94 @@ static int ecrire_radio(const Command *command, int argc,
 /* ------------------------------------------------------------------------- */
 /* Handlers : Media Player                                                   */
 /* ------------------------------------------------------------------------- */
+
+/* ------------------------------------------------------------------------- */
+/* Handlers : trame brute                                                    */
+/* ------------------------------------------------------------------------- */
+
+#define RAW_MAX_BYTES  64
+#define RAW_MAX_FRAMES 8
+#define RAW_LISTEN_MS  1500
+
+/* Octets en hexadécimal, séparés par des espaces. */
+static struct json_object *hex_json(const uint8_t *bytes, size_t length)
+{
+    char text[3 * AML_PROTOCOL_MAX_FRAME_SIZE + 1];
+    size_t used = 0;
+
+    text[0] = '\0';
+    for (size_t i = 0; i < length && used + 4 <= sizeof(text); i++)
+        used += (size_t)snprintf(text + used, sizeof(text) - used,
+                                 i == 0 ? "%02X" : " %02X", bytes[i]);
+
+    return json_object_new_string(text);
+}
+
+static int valeur_hex(char c)
+{
+    return isdigit((unsigned char)c) ? c - '0'
+                                     : toupper((unsigned char)c) - 'A' + 10;
+}
+
+/*
+ * Raw : « code données... » en hexadécimal (espaces facultatifs), ex.
+ * "04 01 02". Renvoie la trame envoyée et toutes les trames reçues.
+ */
+static int envoyer_brut(const Command *command, int argc,
+                        const char *const argv[], void *context)
+{
+    HandlerContext *ctx = context;
+    uint8_t octets[RAW_MAX_BYTES];
+    size_t n = 0;
+    SweetDawnRawFrame frames[RAW_MAX_FRAMES];
+    size_t count = 0;
+    (void)command;
+    (void)argc;
+
+    for (const char *p = argv[0]; *p != '\0';) {
+        if (isspace((unsigned char)*p) || *p == ',' || *p == ':') {
+            p++;
+            continue;
+        }
+        if (!isxdigit((unsigned char)p[0]) || !isxdigit((unsigned char)p[1]) ||
+            n >= RAW_MAX_BYTES)
+            return echec(ctx, "INVALID_VALUE",
+                         "Octets hexadécimaux attendus, ex. \"04 01 02\"");
+        octets[n++] = (uint8_t)(valeur_hex(p[0]) << 4 | valeur_hex(p[1]));
+        p += 2;
+    }
+
+    if (n == 0)
+        return echec(ctx, "INVALID_VALUE", "Au moins un octet : le code");
+
+    int code = sweetdawn_raw(ctx->app, octets[0], octets + 1, n - 1,
+                             RAW_LISTEN_MS, frames, RAW_MAX_FRAMES, &count);
+
+    if (verifier(ctx, code) != 0)
+        return -1;
+
+    struct json_object *responses = json_object_new_array();
+
+    for (size_t i = 0; i < count; i++) {
+        const SweetDawnRawFrame *f = &frames[i];
+        struct json_object *r = json_object_new_object();
+
+        if (f->length >= AML_FRAME_DATA_OFFSET + 4) {
+            json_object_object_add(r, "code",
+                                   hex_json(&f->data[AML_FRAME_CODE_OFFSET], 1));
+            json_object_object_add(r, "data",
+                                   hex_json(&f->data[AML_FRAME_DATA_OFFSET],
+                                            f->length - AML_FRAME_DATA_OFFSET - 4));
+        }
+        json_object_object_add(r, "frame", hex_json(f->data, f->length));
+        json_object_array_add(responses, r);
+    }
+
+    ctx->result = json_object_new_object();
+    json_object_object_add(ctx->result, "sent", hex_json(octets, n));
+    json_object_object_add(ctx->result, "responses", responses);
+    return 0;
+}
 
 static int ecrire_haut_parleur(const Command *command, int argc,
                                const char *const argv[], void *context)
@@ -1286,6 +1436,11 @@ static const Liaison LIAISONS[] = {
     { "Radio/>",                     changer_frequence },
     { "Radio/>>",                    changer_frequence },
     { "Radio/Channel",               ecrire_radio },
+    { "Radio/Save",                  enregistrer_preselection },
+    { "Radio/Frequency",             regler_frequence },
+    { "Radio/Presets",               lire_preselections },
+
+    { "Raw",                         envoyer_brut },
     { "Radio/Volume",                ecrire_radio },
     { "Radio/Sleep timer",           ecrire_radio },
     { "Radio/Timer duration",        ecrire_radio },

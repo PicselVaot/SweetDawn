@@ -210,7 +210,7 @@ The full list of commands is in [docs/COMMANDS.md](docs/COMMANDS.md).
 | `subscribe` | none | Receive events on this connection from now on (see below) |
 | a group, e.g. `Light` | none | Reads that part of the device: `Settings`, `Alarm`, `Alarm/1`, `Alarm/2`, `Light`, `Mood`, `Radio` |
 | a setting, e.g. `Light/Brightness` | one value | Changes it; the value is checked first (type, range, allowed choices) |
-| an action, e.g. `Radio/>>` | none | Runs it: `Settings/Sync time`, `Alarm/Stop`, `Alarm/Snooze`, `Radio/<`, `Radio/>`, `Radio/<<`, `Radio/>>` |
+| an action, e.g. `Radio/>>` | none | Runs it: `Settings/Sync time`, `Alarm/Stop`, `Alarm/Snooze`, `Radio/<`, `Radio/>`, `Radio/<<`, `Radio/>>`, `Radio/Save` |
 
 Values may be sent as JSON strings, numbers or booleans: `[75]`, `["75"]`, `[true]`. Special formats: alarm `Time` is `"HH:MM"`, `Mood/Color` is `"R,G,B"`, alarm `Days` is a bit mask (bit 0 = Sunday … bit 6 = Saturday), `Settings/Set time` is `"HH:MM"`, `"HH:MM:SS"` or `"YYYY-MM-DD HH:MM"`.
 
