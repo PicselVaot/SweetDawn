@@ -1,0 +1,59 @@
+{
+  "input": {"type": "audio", "device": "plughw:CARD=Device,DEV=0"},
+  "socket": "/run/sweetdawn/sweetdawn.sock",
+  "repeat_interval_ms": 250,
+
+  "keys": {
+    "↑":      {"code": "nec:0x5c", "action": "volume", "step": 1, "repeat": true},
+    "↓":      {"code": "nec:0x5d", "action": "volume", "step": -1, "repeat": true},
+    "IC Set": {"code": "nec:0x58", "action": "command", "command": "Radio/Save"},
+
+    "w/ww":   {"code": "nec:0x41", "action": "music_switch"},
+    "Power":  {"code": "nec:0x40", "action": "music_power"},
+
+    "CS":     {"code": "nec:0x54", "action": "light_preset", "percent": 25},
+    "C3":     {"code": "nec:0x50", "action": "light_preset", "percent": 50},
+    "C7":     {"code": "nec:0x1c", "action": "light_preset", "percent": 75},
+    "C16":    {"code": "nec:0x18", "action": "light_preset", "percent": 100},
+
+    "←|→":    {"code": "nec:0x59", "action": "command", "command": "Alarm/Snooze"},
+    "→|←":    {"code": "nec:0x45", "action": "command", "command": "Alarm/Stop"},
+    "<<<<<":  {"code": "nec:0x55", "action": "command", "command": "Radio/<<"},
+    ">>>>>":  {"code": "nec:0x49", "action": "command", "command": "Radio/>>"},
+    "<*":     {"code": "nec:0x51", "action": "command", "command": "Radio/<", "repeat": true},
+    "*>":     {"code": "nec:0x4d", "action": "command", "command": "Radio/>", "repeat": true},
+    "←":      {"code": "nec:0x1d", "action": "scene_step", "step": -1},
+    "→":      {"code": "nec:0x1e", "action": "scene_step", "step": 1},
+    "*----":  {"code": "nec:0x19", "action": "none"},
+    "----*":  {"code": "nec:0x1a", "action": "none"},
+
+    "Auto":   {"code": "nec:0x44", "action": "scene", "scene": "Random"},
+    "⇄":      {"code": "nec:0x48", "action": "scene", "scene": "Rainbow"},
+    "Flash":  {"code": "nec:0x4c", "action": "scene", "scene": "Pulse"},
+    "Jump":   {"code": "nec:0x1f", "action": "scene", "scene": "Wave"},
+    "Meteor": {"code": "nec:0x1b", "action": "scene", "scene": "Action"},
+
+    "ON":     {"code": "nec:0x17", "action": "light_on"},
+    "OFF":    {"code": "nec:0x16", "action": "light_off"},
+    "☼+":     {"code": "nec:0x14", "action": "light_step", "step": 10, "repeat": true},
+    "☼-":     {"code": "nec:0x10", "action": "light_step", "step": -10, "repeat": true},
+    "⭘+":     {"code": "nec:0x15", "action": "radio_preset_step", "step": 1},
+    "⭘-":     {"code": "nec:0x11", "action": "radio_preset_step", "step": -1},
+    "◓":      {"code": "nec:0x13", "action": "mood_mode"},
+    "☀":      {"code": "nec:0x12", "action": "light_mode"},
+
+    "30min":  {"code": "nec:0xc", "action": "timer", "minutes": 30},
+    "1h":     {"code": "nec:0xd", "action": "timer", "minutes": 60},
+    "2h":     {"code": "nec:0xe", "action": "timer", "minutes": 120},
+    "4h":     {"code": "nec:0xf", "action": "timer", "minutes": 240},
+
+    "☕":     {"code": "nec:0x8", "action": "radio_preset", "channel": 1},
+    "📖":     {"code": "nec:0x9", "action": "radio_preset", "channel": 2},
+    "💻":     {"code": "nec:0xa", "action": "radio_preset", "channel": 3},
+    "🎮":     {"code": "nec:0xb", "action": "radio_preset", "channel": 4},
+    "🍼":     {"code": "nec:0x4", "action": "radio_preset", "channel": 5},
+    "🌙":     {"code": "nec:0x5", "action": "radio_preset", "channel": 6},
+    "💡":     {"code": "nec:0x6", "action": "radio_preset", "channel": 7},
+    "🎓":     {"code": "nec:0x7", "action": "radio_preset", "channel": 8}
+  }
+}

@@ -1,0 +1,28 @@
+# SweetDawn — télécommande infrarouge
+#
+# Modèle : @USER@ et @DIR@ sont remplacés par `make install-ir`.
+# Configuration : config/ir.json (voir config/ir.example.json).
+#
+#   journalctl -u sweetdawn-ir -f    touches reçues et commandes envoyées
+
+[Unit]
+Description=SweetDawn - telecommande infrarouge
+# La télécommande parle au service : la démarrer après lui.
+After=sweetdawn.service sound.target
+Wants=sweetdawn.service
+
+[Service]
+Type=simple
+User=@USER@
+# audio : entrée micro ; video : /dev/lircN ; input : /dev/input/eventN
+SupplementaryGroups=audio video input
+WorkingDirectory=@DIR@
+ExecStart=/usr/bin/python3 @DIR@/ir/sweetdawn_ir.py
+# Messages Python visibles immédiatement dans le journal.
+Environment=PYTHONUNBUFFERED=1
+# Redémarre aussi si le récepteur est débranché puis rebranché.
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

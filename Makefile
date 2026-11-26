@@ -8,6 +8,9 @@
 #  make uninstall-service  Arrête et retire le service systemd (sudo).
 #  make install-mqtt       Installe et démarre le pont MQTT (sudo).
 #  make uninstall-mqtt     Arrête et retire le pont MQTT (sudo).
+#  make install-ir         Installe et démarre la télécommande IR (sudo).
+#  make uninstall-ir       Arrête et retire la télécommande IR (sudo).
+#  make test-ir            Tests du décodage IR (Python).
 #  make clean              Supprime tout ce qui a été compilé (le dossier bin/).
 #
 #  Les programmes produits :
@@ -87,7 +90,7 @@ TESTS := $(BIN)/test_protocol \
          $(BIN)/test_ipc
 
 .PHONY: all test clean rebuild install-service uninstall-service \
-        install-mqtt uninstall-mqtt
+        install-mqtt uninstall-mqtt install-ir uninstall-ir test-ir
 
 all: $(PROGRAMS) $(TESTS)
 
@@ -236,6 +239,29 @@ uninstall-mqtt:
 	-sudo systemctl disable --now sweetdawn-mqtt
 	sudo rm -f $(MQTT_UNIT)
 	sudo systemctl daemon-reload
+
+# Télécommande infrarouge (ir/sweetdawn_ir.py) : nécessite config/ir.json
+# (voir config/ir.example.json) et, pour l'entrée audio, python3-numpy.
+# Après une modification : sudo systemctl restart sweetdawn-ir.
+IR_UNIT := /etc/systemd/system/sweetdawn-ir.service
+
+install-ir:
+	@test -f config/ir.json || \
+	    { echo "config/ir.json manquant (voir config/ir.example.json)"; exit 1; }
+	sed -e 's|@USER@|$(USER)|g' -e 's|@DIR@|$(CURDIR)|g' \
+	    systemd/sweetdawn-ir.service | sudo tee $(IR_UNIT) > /dev/null
+	sudo systemctl daemon-reload
+	sudo systemctl enable sweetdawn-ir
+	sudo systemctl restart sweetdawn-ir
+	@echo "Télécommande installée : journalctl -u sweetdawn-ir -f"
+
+uninstall-ir:
+	-sudo systemctl disable --now sweetdawn-ir
+	sudo rm -f $(IR_UNIT)
+	sudo systemctl daemon-reload
+
+test-ir:
+	python3 ir/tests/test_ir_input.py
 
 rebuild: clean
 	$(MAKE) all

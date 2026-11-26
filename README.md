@@ -175,6 +175,42 @@ journalctl -u sweetdawn-mqtt -f                # live log
 
 The bridge subscribes to the service events, so alarms and light changes made on the device (buttons, gesture sensor) show up in Home Assistant immediately. It also reads the device state every `poll_seconds` (30 s by default) and one second after each command, since the AML005 does not acknowledge every command. Topics live under `sweetdawn/aml005/`.
 
+### Infrared remote (optional)
+
+`ir/sweetdawn_ir.py` lets an infrared remote control the AML005. Like the MQTT bridge, it is a client of the service and never touches Bluetooth. Everything that depends on the remote is in `config/ir.json`: where to read it, and for each key its code and its action.
+
+| Input (`"input"` → `"type"`) | Receiver | Protocols |
+|---|---|---|
+| `audio` | demodulated IR receiver (TSOP-like) plugged into a microphone input, e.g. a USB sound card | NEC, decoded by `ir/ir_input.py` (needs `python3-numpy`) |
+| `lirc` | receiver handled by the kernel: GPIO (`dtoverlay=gpio-ir`), USB MCE receivers... (`/dev/lirc0`) | whatever the kernel decodes: NEC, RC5, RC6, Sony, JVC, Sanyo, Sharp... (enable them with `ir-keytable -p all`) |
+| `evdev` | receiver that shows up as a keyboard (FLIRC, many USB dongles) | any: keys arrive as `key:<code>` |
+
+Codes use the kernel's format (`nec:0x14`, `rc5:0x1e0c`), so a remote keeps its codes whichever receiver reads it. `config/ir.example.json` is a 44-key LED strip remote read through a USB sound card.
+
+```bash
+cp config/ir.example.json config/ir.json        # set the input, then:
+python3 ir/ir_learn.py listen                   # show the code of each key
+python3 ir/ir_learn.py learn                    # name a key, press it: its code goes into config/ir.json
+python3 ir/sweetdawn_ir.py --dry-run --press "☼+"   # try a key's action without sending anything
+make install-ir                                 # start at boot (journalctl -u sweetdawn-ir -f)
+make test-ir                                    # decoder tests, including real noisy recordings
+```
+
+Actions (the key's `"action"`, with its parameters):
+
+| Action | Effect |
+|---|---|
+| `command` (`command`) | any SweetDawn action, e.g. `Alarm/Stop`, `Alarm/Snooze`, `Radio/>>`, `Radio/Save` |
+| `light_on`, `light_off`, `light_step` (`step`) | the active light (lamp or mood light): on, off, brightness ± `step` |
+| `light_mode`, `mood_mode`, `light_preset` (`percent`) | switch to the lamp or the mood light; lamp at a fixed brightness |
+| `scene` (`scene`), `scene_step` (`step`) | a mood scene, or the next / previous one |
+| `music_power`, `music_switch` | toggle the active music source; switch between radio and Bluetooth speaker |
+| `volume` (`step`), `radio_preset` (`channel`), `radio_preset_step` (`step`) | volume; recall a preset (turns the radio on) |
+| `timer` (`minutes`) | sunset / sleep timer on the active light and music; beyond the AML maximum, the service waits and then starts the last 60 minutes on the AML |
+| `none` | nothing |
+
+`"repeat": true` repeats the action while the key is held. Switching the active light or music turns off the one in use and turns on the new one. The service remembers the active light and music in `~/.local/state/sweetdawn-ir.json`.
+
 ### IPC protocol
 
 Each message is a single JSON object on one line, terminated by `\n`. Requests are at most 4096 bytes. A client may also subscribe to events, which then arrive on the same connection.
@@ -331,9 +367,10 @@ src/
 
 test/                        # One test program per module (fake_aml.c: simulated device)
 mqtt/sweetdawn_mqtt.py       # MQTT bridge to Home Assistant
+ir/                          # Infrared remote: service, receivers (audio, lirc, evdev), learn tool, tests
 docs/COMMANDS.md             # Every command, with values and limits
 docs/PROTOCOL.md             # AML005 Bluetooth protocol reference
-systemd/                     # systemd unit templates (make install-service, install-mqtt)
+systemd/                     # systemd unit templates (make install-service, install-mqtt, install-ir)
 config/                      # Example configuration (local files are ignored)
 ```
 
