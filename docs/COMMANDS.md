@@ -33,7 +33,7 @@ This list comes from the tree defined in [`src/command/aml_commands.c`](../src/c
 | `Settings/Display time` | `24`, `12` | Format of the displayed time |
 | `Settings/Time` | `auto`, `manual` | Time mode; `auto` also sets the AML clock |
 | `Settings/Feedback` | `true`, `false` | Button beep |
-| `Settings/Fade` | `true`, `false` | Light fading |
+| `Settings/Fade` | `true`, `false` | Light fading (no visible effect on the test device, to be confirmed: see [PROTOCOL.md](PROTOCOL.md#display-and-buttons)) |
 | `Settings/Sync time` | — | **Action**: sets the AML clock to the Raspberry Pi time |
 | `Settings/Set time` | `HH:MM`, `HH:MM:SS` or `YYYY-MM-DD HH:MM` | Sets the AML clock to the chosen time; without a date, keeps today's |
 
