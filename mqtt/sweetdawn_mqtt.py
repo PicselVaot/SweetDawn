@@ -20,7 +20,7 @@ Ce qu'il fait :
     commandes : relire est le seul moyen d'afficher l'état réel).
 
 Configuration : config/mqtt.json (voir config/mqtt.example.json).
-Lancement : par systemd (systemd/sweetdawn-mqtt.service), ou à la main
+Lancement : par systemd (systemd/mqtt-sweetdawn.service), ou à la main
 depuis la racine du projet : python3 mqtt/sweetdawn_mqtt.py
 
 Organisation du fichier :
@@ -46,7 +46,7 @@ from typing import Callable, Optional
 
 import paho.mqtt.client as mqtt
 
-log = logging.getLogger("sweetdawn-mqtt")
+log = logging.getLogger("mqtt-sweetdawn")
 
 
 # ============================================================================

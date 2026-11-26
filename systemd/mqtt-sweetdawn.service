@@ -3,7 +3,7 @@
 # Modèle : @USER@ et @DIR@ sont remplacés par `make install-mqtt`.
 # Configuration : config/mqtt.json (voir config/mqtt.example.json).
 #
-#   journalctl -u sweetdawn-mqtt -f    messages en direct
+#   journalctl -u mqtt-sweetdawn -f    messages en direct
 
 [Unit]
 Description=SweetDawn - pont MQTT (Home Assistant)

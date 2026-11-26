@@ -223,20 +223,20 @@ uninstall-service:
 
 # Pont MQTT (mqtt/sweetdawn_mqtt.py) : nécessite config/mqtt.json et le
 # paquet python3-paho-mqtt. Après une modification du script :
-# sudo systemctl restart sweetdawn-mqtt.
-MQTT_UNIT := /etc/systemd/system/sweetdawn-mqtt.service
+# sudo systemctl restart mqtt-sweetdawn.
+MQTT_UNIT := /etc/systemd/system/mqtt-sweetdawn.service
 
 install-mqtt:
 	@test -f config/mqtt.json || \
 	    { echo "config/mqtt.json manquant (voir config/mqtt.example.json)"; exit 1; }
 	sed -e 's|@USER@|$(USER)|g' -e 's|@DIR@|$(CURDIR)|g' \
-	    systemd/sweetdawn-mqtt.service | sudo tee $(MQTT_UNIT) > /dev/null
+	    systemd/mqtt-sweetdawn.service | sudo tee $(MQTT_UNIT) > /dev/null
 	sudo systemctl daemon-reload
-	sudo systemctl enable --now sweetdawn-mqtt
-	@echo "Pont MQTT installé : journalctl -u sweetdawn-mqtt -f"
+	sudo systemctl enable --now mqtt-sweetdawn
+	@echo "Pont MQTT installé : journalctl -u mqtt-sweetdawn -f"
 
 uninstall-mqtt:
-	-sudo systemctl disable --now sweetdawn-mqtt
+	-sudo systemctl disable --now mqtt-sweetdawn
 	sudo rm -f $(MQTT_UNIT)
 	sudo systemctl daemon-reload
 
