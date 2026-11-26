@@ -177,6 +177,8 @@ Observed on 26/11/2026:
 
 - **The device buttons are ignored while a Bluetooth connection is open** ✔. Disconnected, ▲ / ▼ change the volume, Mode turns the radio off and 🔔 beeps; connected, nothing happens. While the SweetDawn service runs, it keeps the connection open, so the buttons are inactive.
 - **The display brightness setting (`display`) has no visible effect** — *to be confirmed*. Every value tried, `00` to `09`, `0A`, `10`, `20`, `40`, `64`, `7F`, `80`, `C8` and `FF`, is accepted and read back, and keeps across a power cut, but the display did not change, whether the value was written while running or present at power-on. A phone flashlight did not change it either, so no ambient light sensor seemed active. The test device is old and its display is faint; it once went completely dark and only came back after unplugging the device: **this unit may be defective**, and another AML005 may behave differently.
+- That evening the display went completely dark and came back after unplugging the device. To find a cause, every probe of the evening was replayed while watching the display (display setting values, the write attempts, codes `80` to `FF`, the reads): none of them changed it. The cause is unknown; an intermittent fault of this unit is the most likely.
+- **The clock setting `01` accepts impossible times** ✔ and shows them as they are: minutes `50` (80) display `01:80`. Handy to show a number on the device during a probe (set `h:min` to it before each request); SweetDawn's own `Settings/Set time` refuses such values, so use `Raw` (`01 00 <min> <h> <weekday> <day> <month> <year-2000> 02`), then `Settings/Sync time`.
 
 ## Spontaneous messages
 
