@@ -23,6 +23,15 @@
  * que le service diffuse avec ipc_server_broadcast(). Ils arrivent sur
  * la même connexion, sous la forme {"type":"event", ...}.
  *
+ * Accès web (facultatif, ipc_server_listen_http) : la même boucle peut
+ * aussi écouter en TCP et parler un HTTP minimal, pour qu'un navigateur
+ * pilote l'AML sans autre programme sur le Raspberry Pi :
+ *   GET  /        page de contrôle (gzip embarqué, voir web/index.html) ;
+ *   POST /api     corps = une requête IPC, réponse = la réponse IPC ;
+ *   GET  /events  événements en direct (Server-Sent Events).
+ * Aucun fichier n'est lu, aucun processus n'est lancé : une requête web
+ * coûte autant qu'une requête IPC.
+ *
  * Utilisation type :
  *
  *   IpcServer server;
@@ -47,8 +56,19 @@
 #define IPC_DEFAULT_SOCKET "/run/sweetdawn/sweetdawn.sock"
 #define IPC_SOCKET_ENV     "SWEETDAWN_SOCKET"
 
-/* Nombre maximal de clients connectés simultanément. */
-#define IPC_SERVER_MAX_CLIENTS 16
+/*
+ * Nombre maximal de clients connectés simultanément, IPC et web
+ * confondus (un navigateur ouvert en occupe deux ou trois).
+ */
+#define IPC_SERVER_MAX_CLIENTS 32
+
+/*
+ * Accès web : variable d'environnement donnant l'adresse d'écoute,
+ * "port" ou "adresse:port" ("80", "0.0.0.0:80", "127.0.0.1:8080").
+ * "off" désactive le web. Défaut : IPC_HTTP_DEFAULT.
+ */
+#define IPC_HTTP_ENV     "SWEETDAWN_HTTP"
+#define IPC_HTTP_DEFAULT "80"
 
 /* Taille maximale d'un message reçu, '\n' non compris. */
 #define IPC_SERVER_MAX_MESSAGE 4096
@@ -107,6 +127,14 @@ typedef struct {
 
     /* Clients connectés, valable pendant ipc_server_run() seulement. */
     struct IpcClient *clients;
+
+    /* Accès web : socket TCP d'écoute, -1 si désactivé. */
+    int http_fd;
+
+    /* Page servie sur GET /, déjà compressée en gzip (peut être NULL). */
+    const unsigned char *page;
+    size_t page_length;
+    char page_etag[24];
 } IpcServer;
 
 /*
@@ -136,6 +164,29 @@ void ipc_server_set_tick(
     IpcServer *server,
     IpcTickHandler tick,
     void *context
+);
+
+/*
+ * Ouvre l'accès web sur address ("80", "0.0.0.0:80", "[::1]:8080"...).
+ * À appeler après ipc_server_init(). En cas d'échec (port déjà pris,
+ * droits insuffisants pour un port < 1024), le serveur IPC reste
+ * utilisable : seul le web est indisponible.
+ */
+int ipc_server_listen_http(
+    IpcServer *server,
+    const char *address,
+    char *error_message,
+    size_t error_capacity
+);
+
+/*
+ * Page servie sur GET /, compressée en gzip. Le tableau n'est pas
+ * copié : il doit rester valide (en pratique, une constante embarquée).
+ */
+void ipc_server_set_page(
+    IpcServer *server,
+    const unsigned char *gzip_page,
+    size_t length
 );
 
 /* Lance la boucle de traitement des clients. */

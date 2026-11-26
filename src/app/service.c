@@ -22,6 +22,10 @@
  *   chemin_socket : défaut $SWEETDAWN_SOCKET, sinon
  *                   /run/sweetdawn/sweetdawn.sock (voir ipc/ipc_server.h).
  *
+ * Accès web : la page de contrôle est servie sur le port donné par
+ * $SWEETDAWN_HTTP ("80" par défaut, "127.0.0.1:8080", "off"...).
+ * Si le port ne peut pas être ouvert, le service démarre quand même.
+ *
  * En temps normal, il est lancé par systemd (systemd/sweetdawn.service).
  *
  * Arrêt propre : Ctrl+C ou SIGTERM.
@@ -32,6 +36,7 @@
 #include "app/handlers.h"
 #include "core/sweetdawn.h"
 #include "ipc/ipc_server.h"
+#include "web/page.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -158,9 +163,30 @@ int main(int argc, char **argv)
     sweetdawn_set_event_handler(&app, handlers_on_event, &app);
     handlers_set_broadcast(service_broadcast, &server);
 
+    /* Accès web : facultatif, une erreur ne bloque pas le service. */
+    const char *http_address = getenv(IPC_HTTP_ENV);
+
+    if (http_address == NULL || http_address[0] == '\0')
+        http_address = IPC_HTTP_DEFAULT;
+
+    if (strcmp(http_address, "off") != 0) {
+        ipc_server_set_page(&server, web_page_gzip, web_page_gzip_size);
+
+        if (ipc_server_listen_http(
+                &server,
+                http_address,
+                error,
+                sizeof(error)) != 0) {
+            fprintf(stderr, "SweetDawn: web indisponible (%s): %s\n",
+                    http_address, error);
+            http_address = "off";
+        }
+    }
+
     printf("SweetDawn service demarre.\n");
     printf("Appareil: %s\n", app.device->name);
     printf("Socket IPC: %s\n", socket_path);
+    printf("Web: %s\n", http_address);
     printf("Commandes: status, commands, ou un chemin (ex. Light/Enable)\n");
     fflush(stdout);
 

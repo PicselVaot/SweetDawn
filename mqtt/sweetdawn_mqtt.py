@@ -12,8 +12,9 @@ Ce qu'il fait :
     lampe, ambiance, radio, alarmes, réglages ;
   - exécute les commandes reçues de Home Assistant ;
   - s'abonne aux événements du service (réveil qui sonne, éclairage
-    changé par geste ou bouton, fin de minuteur) et les répercute
-    aussitôt ;
+    changé par geste ou bouton, fin de minuteur, réglage changé par un
+    autre client comme la page web ou la CLI, liaison ouverte ou perdue)
+    et les répercute aussitôt ;
   - relit en plus l'état de l'AML toutes les `poll_seconds` secondes, et
     une seconde après chaque commande (l'AML ne confirme pas toutes ses
     commandes : relire est le seul moyen d'afficher l'état réel).
@@ -259,6 +260,25 @@ def bool_payload(payload):
 def int_payload(payload):
     # Home Assistant peut envoyer "12" ou "12.0".
     return str(int(float(payload)))
+
+
+def field_key(name):
+    """Nom d'une commande -> nom du champ lu : "Tone volume" -> "tone_volume"."""
+    return name.lower().replace(" ", "_")
+
+
+def typed_like(value, current):
+    """
+    Convertit la valeur texte d'un événement changed dans le type de la
+    valeur déjà en cache ("true" -> True, "30" -> 30...).
+    """
+    if isinstance(current, bool):
+        return value == "true"
+    if isinstance(current, int):
+        return int(float(value))
+    if isinstance(current, float):
+        return float(value)
+    return value
 
 
 # --- Fabriques des entités courantes ---------------------------------------
@@ -793,6 +813,71 @@ class Bridge:
                      "radio": "Radio"}.get(data.get("timer"))
             if group is not None:
                 self.refresh(group)
+        elif name == "changed":
+            self.apply_change(data)
+        elif name == "link":
+            connected = bool(data.get("connected"))
+            self.cache.setdefault("status", {})["connected"] = connected
+            self.publish(AML_TOPIC, "online" if connected else "offline")
+            if connected:
+                # L'AML a pu changer pendant la coupure : tout relire.
+                self.refresh_all()
+
+    def apply_change(self, data):
+        """
+        Un client (page web, CLI, ce pont...) vient de changer un réglage :
+        on recopie la valeur dans le cache et on republie, sans relire l'AML.
+
+        data : {"command": "Light/Brightness", "value": "30", "result": {...}}
+        value vaut None pour une action (Radio/>, Settings/Sync time...).
+        """
+        command = data.get("command") or ""
+        value = data.get("value")
+        result = data.get("result") or {}
+        parts = command.split("/")
+        group = parts[0]
+
+        # Radio/<, Radio/>>... : la réponse donne la nouvelle fréquence.
+        if group == "Radio" and "frequency" in result and "Radio" in self.cache:
+            self.cache["Radio"]["frequency"] = result["frequency"]
+            self.publish_group("Radio")
+
+        if value is None:
+            return
+
+        # Chemin de la commande -> emplacement de la valeur dans le cache.
+        # Les champs portent le nom de la commande en snake_case :
+        # "Sunset duration" -> sunset_duration, "Tone volume" -> tone_volume.
+        if group == "Settings" and len(parts) == 2:
+            group, field_path = "status", ["settings", field_key(parts[1])]
+        elif group == "Alarm" and len(parts) == 3:
+            field_path = [parts[1], field_key(parts[2])]
+        elif group in ("Light", "Mood", "Radio") and len(parts) == 2:
+            field_path = [field_key(parts[1])]
+        else:
+            return
+
+        parent = self.cache.get(group)
+        for key in field_path[:-1]:
+            parent = parent.get(key) if isinstance(parent, dict) else None
+
+        # Groupe jamais lu (ou champ inconnu) : la prochaine relecture suffira.
+        if not isinstance(parent, dict) or field_path[-1] not in parent:
+            return
+
+        field = field_path[-1]
+        parent[field] = typed_like(value, parent[field])
+
+        # Allumer l'ambiance relance toujours la scène Rainbow.
+        if command == "Mood/Enable" and value == "true":
+            self.cache["Mood"]["scene"] = "Rainbow"
+
+        # Valeurs dérivées que l'événement ne donne pas : prochain réveil
+        # (next, in) pour une alarme, fréquence pour une présélection.
+        if group == "Alarm" or command == "Radio/Channel":
+            self.refresh_due.setdefault(group, time.monotonic() + REFRESH_DELAY_S)
+
+        self.publish_group(group)
 
     def refresh_all(self):
         self.refresh("status")

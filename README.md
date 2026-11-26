@@ -241,6 +241,8 @@ After `subscribe`, the service pushes events on the same connection, between res
 {"type": "event", "event": "alarm_state", "data": {"state": "ringing", "alarm": 2, "alarms": {"1": "idle", "2": "ringing"}}}
 {"type": "event", "event": "light_changed", "data": {"light": {...}, "mood": {...}}}
 {"type": "event", "event": "timer_ended", "data": {"timer": "radio"}}
+{"type": "event", "event": "changed", "data": {"command": "Light/Brightness", "value": "30", "result": {}}}
+{"type": "event", "event": "link", "data": {"connected": true}}
 ```
 
 | Event | When | Data |
@@ -248,8 +250,14 @@ After `subscribe`, the service pushes events on the same connection, between res
 | `alarm_state` | An alarm state changes | `alarms`: the state of each alarm (`idle`, `sunrise`, `ringing` or `snoozed`); `state` and `alarm`: the most advanced one (ringing, then snoozed, then sunrise), `alarm` being `null` when both are idle |
 | `light_changed` | The light or mood light changed on the device (button, gesture sensor, timer) | Both states, as returned by `Light` and `Mood` |
 | `timer_ended` | A sleep timer ended | `timer`: `light`, `mood`, `radio` or `music` |
+| `changed` | A client (CLI, MQTT bridge, web page...) successfully changed a setting or ran an action | `command`; `value` as text (`null` for an action); `result`: the response sent to that client |
+| `link` | The Bluetooth link to the AML opened or was lost | `connected` |
 
 Both alarms are tracked separately, since they can overlap (one ringing during the other's sunrise). The AML005 reports the sunrise and the ringing itself, but nothing when it is tapped (snooze) or stopped with its button. While an alarm is active, the service reads its state every second. When the ringing stops, the state becomes `snoozed` for the alarm's snooze duration: if it does not ring again, it was stopped, and the state returns to `idle`. A stop sent through SweetDawn (`Alarm/Stop`) is known, and gives `idle` at once.
+
+`changed` lets every client follow changes made by the others without reading the device again. It only says the command was accepted: for commands the AML005 does not acknowledge, reading the group remains the only way to see its real state.
+
+The web page receives the same events through `GET /events` (Server-Sent Events), one `data:` line per event.
 
 #### Error codes
 

@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#16110e">
+<title>SweetDawn</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="%23211915"/><g stroke="%23f0a35e" stroke-width="4" stroke-linecap="round"><path d="M32 12v7M14 22l5 5M50 22l-5 5M8 38h6M50 38h6"/></g><path d="M17 44a15 15 0 0 1 30 0z" fill="%23f0a35e"/><path d="M10 46h44" stroke="%23e0694a" stroke-width="4" stroke-linecap="round"/><path d="M20 53h24" stroke="%23a8968a" stroke-width="3" stroke-linecap="round"/></svg>'>
+<style>
+:root{--bg:#16110e;--card:#211915;--line:#3a2c24;--text:#f3e7dc;--mute:#a8968a;--acc:#f0a35e;--acc2:#e0694a;--ok:#7cc48b;--bad:#e06a5a;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--bg:#faf4ee;--card:#fff;--line:#eadbcd;--text:#2b1f18;--mute:#86756a;--acc:#d9782f;--acc2:#c4502f;color-scheme:light}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-tap-highlight-color:transparent}
+main{max-width:520px;margin:0 auto;padding:12px 16px 40px}
+header{display:flex;align-items:center;justify-content:space-between;padding:8px 0 14px}
+h1{font-size:22px;margin:0;letter-spacing:.5px}
+h1 b{color:var(--acc)}
+.pill{font-size:13px;color:var(--mute);display:flex;align-items:center;gap:6px}
+.pill i{width:9px;height:9px;border-radius:50%;background:var(--bad)}
+.pill.on i{background:var(--ok)}
+section{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:12px}
+section.off{opacity:.45;pointer-events:none}
+h2{font-size:15px;margin:0;font-weight:600}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
+.row+.row{border-top:1px solid var(--line)}
+.row span{color:var(--mute);font-size:14px}
+.top{border:0!important}
+input[type=range]{flex:1;accent-color:var(--acc);height:28px}
+output{min-width:3ch;text-align:right;font-variant-numeric:tabular-nums;color:var(--mute);font-size:14px}
+select,input[type=time],input[type=number]{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;font-size:15px}
+input[type=number]{width:70px}
+input[type=color]{width:52px;height:36px;border:1px solid var(--line);border-radius:10px;background:none;padding:2px}
+.sw{appearance:none;width:50px;height:30px;border-radius:15px;background:var(--line);position:relative;cursor:pointer;transition:.2s;flex:none;margin:0}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+.sw:checked{background:var(--acc)}
+.sw:checked::after{left:23px}
+button{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font:inherit;cursor:pointer;min-width:48px}
+button:active{transform:scale(.96)}
+.days{display:flex;gap:5px}
+.days button{min-width:0;width:36px;height:36px;padding:0;border-radius:50%;font-size:13px}
+.days button.on{background:var(--acc);border-color:var(--acc);color:#1b120c;font-weight:600}
+.alarm+.alarm{margin-top:6px;border-top:1px solid var(--line);padding-top:6px}
+.next{font-size:13px;color:var(--mute)}
+details summary{cursor:pointer;color:var(--mute);font-size:14px;padding:8px 0;list-style:none}
+details summary::before{content:"▸ "}
+details[open] summary::before{content:"▾ "}
+.freq{font-size:34px;font-weight:300;text-align:center;font-variant-numeric:tabular-nums;margin:4px 0}
+.freq small{font-size:15px;color:var(--mute)}
+.tune{display:flex;justify-content:center;gap:8px}
+#ring{display:none;background:linear-gradient(135deg,var(--acc2),var(--acc));color:#1b120c;border:0}
+#ring.show{display:block}
+#ring p{margin:0 0 10px;font-weight:600}
+#ring .tune button{background:#fff8;border:0;color:#1b120c;font-weight:600;flex:1}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(80px);background:var(--bad);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;transition:.25s;max-width:90%}
+#toast.show{transform:translateX(-50%)}
+footer{text-align:center}
+footer button{color:var(--mute);font-size:14px}
+</style>
+</head>
+<body>
+<main>
+<header><h1>Sweet<b>Dawn</b></h1><div class="pill" id="link"><i></i><span>…</span></div></header>
+
+<section id="ring"><p id="ringtxt">Réveil en cours</p>
+<div class="tune"><button data-act="Alarm/Snooze">Répéter</button><button data-act="Alarm/Stop">Arrêter</button></div></section>
+
+<section id="light" class="off">
+<div class="row top"><h2>Lumière</h2><input type="checkbox" class="sw" data-cmd="Light/Enable" data-k="enable"></div>
+<div class="row"><input type="range" min="0" max="100" data-cmd="Light/Brightness" data-k="brightness"><output></output></div>
+<div class="row"><span>Coucher de soleil</span><input type="number" min="1" max="60" data-cmd="Light/Sunset duration" data-k="sunset_duration"><input type="checkbox" class="sw" data-cmd="Light/Sunset" data-k="sunset"></div>
+</section>
+
+<section id="mood" class="off">
+<div class="row top"><h2>Ambiance</h2><input type="checkbox" class="sw" data-cmd="Mood/Enable" data-k="enable"></div>
+<div class="row"><input type="range" min="0" max="100" data-cmd="Mood/Brightness" data-k="brightness"><output></output></div>
+<div class="row"><select data-cmd="Mood/Scene" data-k="scene"></select><input type="color" data-cmd="Mood/Color" data-k="color"></div>
+</section>
+
+<section id="alarms" class="off"><div class="row top"><h2>Réveils</h2></div></section>
+
+<section id="radio" class="off">
+<div class="row top"><h2>Radio</h2><input type="checkbox" class="sw" data-cmd="Radio/Enable" data-k="enable"></div>
+<div class="freq"><span id="freq">–</span> <small>MHz</small></div>
+<div class="tune"><button data-act="Radio/<<">«</button><button data-act="Radio/<">‹</button><button data-act="Radio/>">›</button><button data-act="Radio/>>">»</button></div>
+<div class="row"><span>Volume</span><input type="range" min="1" max="10" data-cmd="Radio/Volume" data-k="volume"><output></output></div>
+<div class="row"><span>Présélection</span><select data-cmd="Radio/Channel" data-k="channel"></select></div>
+</section>
+
+<footer><button data-act="Settings/Sync time">Mettre l'AML à l'heure</button></footer>
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+const SCENES=["Off","Random","Rainbow","Rainbow Slow","Fusion","Pulse","Wave","Chill","Action","Forest","Summer"];
+const TONES=["Buzzer","Radio","Melody 1","Birds","Bells","Piano","Melody 2"];
+const SNOOZE=["1","2","5","10","20","30"];
+const DAYS=[["L",2],["M",4],["M",8],["J",16],["V",32],["S",64],["D",1]];
+const opts=(sel,list)=>{sel.innerHTML=list.map(v=>`<option>${v}</option>`).join("")};
+let rid=0,connected=false,hiddenAt=0;
+
+function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("show");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("show"),3500)}
+
+async function api(command,value){
+  const r=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({type:"request",id:++rid,command,args:value===undefined?[]:[value]})});
+  const j=await r.json();
+  if(!j.ok)throw new Error(j.error.message);
+  return j.result;
+}
+async function send(command,value){try{return await api(command,value)}catch(e){toast(e.message)}}
+
+/* --- rendu --- */
+const hex=c=>"#"+c.split(",").map(n=>(+n).toString(16).padStart(2,"0")).join("");
+const rgb=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16)).join(",");
+function fill(root,data){
+  root.classList.remove("off");
+  $$("[data-k]",root).forEach(el=>{
+    const v=data[el.dataset.k];if(v===undefined)return;
+    if(el.type==="checkbox")el.checked=v;
+    else if(el.type==="color")el.value=hex(v);
+    else el.value=v;
+    if(el.nextElementSibling&&el.nextElementSibling.tagName==="OUTPUT")el.nextElementSibling.value=el.value;
+  });
+}
+function renderRadio(r){fill($("#radio"),r);if(r.frequency!==undefined)$("#freq").textContent=(+r.frequency).toFixed(1)}
+
+function alarmBlock(n){
+  const d=document.createElement("div");d.className="alarm";d.dataset.n=n;
+  d.innerHTML=`<div class="row top"><input type="time" data-cmd="Alarm/${n}/Time" data-k="time"><span class="next"></span><input type="checkbox" class="sw" data-cmd="Alarm/${n}/Enable" data-k="enable"></div>
+<div class="row top days">${DAYS.map(([l,b])=>`<button data-bit="${b}">${l}</button>`).join("")}</div>
+<details><summary>Réglages</summary>
+<div class="row"><span>Lever de soleil</span><input type="number" min="2" max="60" data-cmd="Alarm/${n}/Sunrise duration" data-k="sunrise_duration"><input type="checkbox" class="sw" data-cmd="Alarm/${n}/Sunrise" data-k="sunrise"></div>
+<div class="row"><span>Lumière max.</span><input type="range" min="1" max="100" data-cmd="Alarm/${n}/Sunrise brightness" data-k="sunrise_brightness"><output></output></div>
+<div class="row"><span>Sonnerie</span><select data-cmd="Alarm/${n}/Tone" data-k="tone"></select></div>
+<div class="row"><span>Volume</span><input type="range" min="1" max="10" data-cmd="Alarm/${n}/Tone volume" data-k="tone_volume"><output></output></div>
+<div class="row"><span>Répétition (min)</span><select data-cmd="Alarm/${n}/Snooze" data-k="snooze"></select></div>
+</details>`;
+  opts($("[data-k=tone]",d),TONES);opts($("[data-k=snooze]",d),SNOOZE);
+  $$(".days button",d).forEach(b=>b.onclick=async()=>{
+    b.classList.toggle("on");
+    const mask=$$(".days button.on",d).reduce((m,x)=>m|+x.dataset.bit,0);
+    await send(`Alarm/${n}/Days`,mask);
+  });
+  return d;
+}
+function renderAlarm(n,a){
+  const d=$(`.alarm[data-n="${n}"]`);fill(d,a);
+  $$(".days button",d).forEach(b=>b.classList.toggle("on",(a.days&+b.dataset.bit)!==0));
+  $(".next",d).textContent=a.enable&&a.in?"dans "+a.in:"";
+}
+function renderRing(s){
+  const on=s&&s.state&&s.state!=="idle";
+  $("#ring").classList.toggle("show",!!on);
+  if(on)$("#ringtxt").textContent={sunrise:"Lever de soleil en cours",ringing:"Le réveil sonne",snoozed:"Réveil en pause"}[s.state]||"Réveil";
+}
+function renderLink(){const p=$("#link");p.classList.toggle("on",connected);$("span",p).textContent=connected?"connecté":"AML injoignable"}
+
+/* --- chargement --- */
+async function load(){
+  let st;try{st=await api("status")}catch(e){connected=false;renderLink();return}
+  connected=st.connected;renderLink();renderRing(st.alarm_state);
+  if(!connected)return;
+  try{
+    const l=await api("Light");fill($("#light"),l);
+    const m=await api("Mood");fill($("#mood"),m);
+    const a=await api("Alarm");$("#alarms").classList.remove("off");renderAlarm(1,a["1"]);renderAlarm(2,a["2"]);
+    renderRadio(await api("Radio"));
+  }catch(e){toast(e.message)}
+}
+
+/* --- actions --- */
+document.addEventListener("change",async e=>{
+  const el=e.target,cmd=el.dataset.cmd;if(!cmd)return;
+  let v=el.type==="checkbox"?el.checked:el.type==="color"?rgb(el.value):el.value;
+  const r=await send(cmd,v);
+  if(r===undefined){load();return}
+  if(cmd==="Mood/Enable"&&v)$("#mood [data-k=scene]").value="Rainbow";
+  if(cmd.startsWith("Alarm/"))api("Alarm/"+cmd.split("/")[1]).then(a=>renderAlarm(cmd.split("/")[1],a)).catch(()=>{});
+});
+document.addEventListener("input",e=>{const o=e.target.nextElementSibling;if(e.target.type==="range"&&o&&o.tagName==="OUTPUT")o.value=e.target.value});
+document.addEventListener("click",async e=>{
+  const b=e.target.closest("[data-act]");if(!b)return;
+  b.disabled=true;const r=await send(b.dataset.act);b.disabled=false;
+  if(r&&r.frequency!==undefined)$("#freq").textContent=(+r.frequency).toFixed(1);
+  if(r&&b.dataset.act.startsWith("Settings"))toast("AML mis à l'heure");
+});
+
+/* --- événements en direct --- */
+const es=new EventSource("/events");
+es.onmessage=e=>{
+  const m=JSON.parse(e.data);
+  if(m.event==="alarm_state")renderRing(m.data);
+  else if(m.event==="light_changed"){fill($("#light"),m.data.light);fill($("#mood"),m.data.mood)}
+  else if(m.event==="timer_ended"&&m.data.timer==="radio")api("Radio").then(renderRadio).catch(()=>{});
+  else if(m.event==="changed")applyChange(m.data);
+  else if(m.event==="link"){const was=connected;connected=m.data.connected;renderLink();if(connected&&!was)load()}
+};
+
+/* Changement fait par un client (cette page, une autre, CLI, MQTT) :
+   on recopie la valeur, sans relire l'AML. */
+function applyChange({command:c,value:v,result:r}){
+  if(r&&r.frequency!==undefined)$("#freq").textContent=(+r.frequency).toFixed(1);
+  if(v===null||v===undefined)return;
+  if(c==="Mood/Enable"&&v==="true")$("#mood [data-k=scene]").value="Rainbow";
+  const days=c.match(/^Alarm\/([12])\/Days$/);
+  if(days){$$(`.alarm[data-n="${days[1]}"] .days button`).forEach(b=>b.classList.toggle("on",(+v&+b.dataset.bit)!==0));return}
+  $$("[data-cmd]").filter(el=>el.dataset.cmd===c).forEach(el=>{
+    if(el===document.activeElement&&el.type!=="checkbox")return;
+    if(el.type==="checkbox")el.checked=v==="true";
+    else if(el.type==="color")el.value=hex(v);
+    else el.value=v;
+    const o=el.nextElementSibling;if(o&&o.tagName==="OUTPUT")o.value=el.value;
+  });
+  const n=c.match(/^Alarm\/([12])\/Enable$/);
+  if(n&&v==="false")$(`.alarm[data-n="${n[1]}"] .next`).textContent="";
+}
+/* Reconnexion du flux (service redémarré...) : relire l'état. */
+let firstOpen=true;
+es.onopen=()=>{if(firstOpen){firstOpen=false;return}load()};
+
+/* Onglet revenu après plus de 10 s : relire l'état (changements faits
+   aux boutons de l'AML, que l'appareil ne signale pas tous). */
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden)hiddenAt=Date.now();
+  else if(Date.now()-hiddenAt>10000)load();
+});
+/* AML injoignable : demander l'état mémorisé (sans Bluetooth) toutes les 30 s. */
+setInterval(()=>{if(!document.hidden&&!connected)load()},30000);
+
+opts($("#mood [data-k=scene]"),SCENES);
+opts($("#radio [data-k=channel]"),Array.from({length:10},(_,i)=>i+1));
+$("#alarms").append(alarmBlock(1),alarmBlock(2));
+load();
+</script>
+</body>
+</html>

@@ -1053,6 +1053,17 @@ static int ecrire_haut_parleur(const Command *command, int argc,
  *   {"type":"event","event":"light_changed","data":{"light":{...},"mood":{...}}}
  *   {"type":"event","event":"timer_ended","data":{"timer":"radio"}}
  *
+ * Deux événements ne viennent pas de l'AML mais du service lui-même :
+ *
+ *   {"type":"event","event":"changed",
+ *    "data":{"command":"Light/Brightness","value":"30","result":{}}}
+ *     un client (CLI, MQTT, page web...) vient de changer un réglage ou
+ *     de lancer une action : les autres se mettent à jour sans relire
+ *     l'AML. value vaut null pour une action ; result est la réponse.
+ *
+ *   {"type":"event","event":"link","data":{"connected":true}}
+ *     la liaison Bluetooth vient de s'ouvrir ou de se perdre.
+ *
  * État du réveil : l'AML signale le début du lever de soleil (C6) et la
  * sonnerie (C7), mais rien quand on le tape (snooze) ou qu'on l'arrête
  * aux boutons. Tant qu'une alarme est en cours, on relit donc son état
@@ -1110,6 +1121,7 @@ static struct {
     int64_t prochaine_lecture_ms;
     bool arret_demande;          /* Alarm/Stop envoyé par SweetDawn    */
     unsigned connexions;         /* pour relire l'état après reconnexion */
+    bool connecte;               /* dernier état de liaison diffusé     */
 
     /* Diffusion aux clients. */
     HandlersBroadcast diffuser;
@@ -1504,7 +1516,22 @@ static void entretenir_horloge(SweetDawn *app, int64_t now_ms)
  */
 void handlers_tick(SweetDawn *app)
 {
-    if (app == NULL || !sweetdawn_is_connected(app))
+    if (app == NULL)
+        return;
+
+    /* Liaison ouverte ou perdue depuis le tour précédent. */
+    bool connecte = sweetdawn_is_connected(app);
+
+    if (connecte != evenements.connecte) {
+        struct json_object *data = json_object_new_object();
+
+        evenements.connecte = connecte;
+        json_object_object_add(data, "connected",
+                               json_object_new_boolean(connecte));
+        diffuser("link", data);
+    }
+
+    if (!connecte)
         return;
 
     int64_t now = sweetdawn_now_ms(app);
@@ -1765,5 +1792,22 @@ int handlers_request(
     }
 
     *result = ctx.result != NULL ? ctx.result : json_object_new_object();
+
+    /*
+     * Un réglage ou une action a réussi (pas une simple lecture de
+     * groupe) : prévenir les clients abonnés, qui se mettent à jour
+     * sans interroger l'AML.
+     */
+    if (expected == 1 || command->child_count == 0) {
+        struct json_object *data = json_object_new_object();
+
+        json_object_object_add(data, "command", json_object_new_string(name));
+        json_object_object_add(data, "value",
+                               value != NULL ? json_object_new_string(value)
+                                             : NULL);
+        json_object_object_add(data, "result", json_object_get(*result));
+        diffuser("changed", data);
+    }
+
     return 0;
 }

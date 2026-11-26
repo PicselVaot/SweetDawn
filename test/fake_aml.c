@@ -6,6 +6,8 @@
 
 #include "fake_aml.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 int fake_connect_error = 0;
@@ -43,6 +45,22 @@ void fake_reset(void)
 /* Construit une trame de réponse : FE EF 0C LL AB BB IL code args chk 55 0D 0A */
 void fake_push_response(uint8_t code, const uint8_t *args, size_t args_length)
 {
+    /*
+     * La file ne fait qu'avancer : les trames déjà lues restent au début.
+     * Quand elle est pleine, on les retire pour faire de la place.
+     */
+    if (fake_queue_count == FAKE_QUEUE_MAX && fake_queue_head > 0) {
+        memmove(fake_queue, &fake_queue[fake_queue_head],
+                (size_t)(fake_queue_count - fake_queue_head) * sizeof(fake_queue[0]));
+        fake_queue_count -= fake_queue_head;
+        fake_queue_head = 0;
+    }
+
+    if (fake_queue_count == FAKE_QUEUE_MAX) {
+        fprintf(stderr, "fake_aml : file de réponses pleine (FAKE_QUEUE_MAX)\n");
+        abort();
+    }
+
     FakeFrame *frame = &fake_queue[fake_queue_count++];
     uint8_t *f = frame->data;
     uint8_t checksum = 0;

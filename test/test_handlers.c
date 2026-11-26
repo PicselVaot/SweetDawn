@@ -398,6 +398,12 @@ static void test_evenements(void)
     /* Premier tour : état du réveil relu, rien en cours. */
     fake_push_response(0xC5, (const uint8_t[]){0, 0}, 2);
     handlers_tick(&app);
+    CHECK(nb_diffuses == 1 && dernier_contient("\"link\"") &&
+          dernier_contient("\"connected\":true"),
+          "au repos : seule la liaison ouverte est diffusée");
+    nb_diffuses = 0;
+
+    handlers_tick(&app);
     CHECK(nb_diffuses == 0, "au repos, rien n'est diffusé");
 
     /* Geste devant l'AML : CA, puis relecture de Light et Mood. */
@@ -514,6 +520,31 @@ static void test_evenements(void)
     handlers_tick(&app);
     CHECK(dernier_contient("\"timer_ended\"") && dernier_contient("\"radio\""),
           "ED : timer_ended radio");
+
+    /* Réglage réussi : les autres clients sont prévenus, sans relecture. */
+    nb_diffuses = 0;
+    fake_sent_count = 0;
+    requete("Light/Brightness", "[30]");
+    CHECK(last_rc == 0 && nb_diffuses == 1 && fake_sent_count == 1 &&
+          dernier_contient("\"changed\"") &&
+          dernier_contient("\"command\":\"Light\\/Brightness\"") &&
+          dernier_contient("\"value\":\"30\""),
+          "Light/Brightness 30 : événement changed, une seule trame envoyée");
+
+    /* Valeur refusée : rien n'a changé, rien n'est diffusé. */
+    nb_diffuses = 0;
+    requete("Light/Brightness", "[150]");
+    CHECK(last_rc != 0 && nb_diffuses == 0,
+          "valeur refusée : pas d'événement changed");
+
+    /* Liaison perdue : diffusée une fois. */
+    nb_diffuses = 0;
+    app.connected = false;
+    handlers_tick(&app);
+    handlers_tick(&app);
+    CHECK(nb_diffuses == 1 && dernier_contient("\"link\"") &&
+          dernier_contient("\"connected\":false"),
+          "liaison perdue : un seul événement link");
 }
 
 static void test_alarme(void)

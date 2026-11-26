@@ -64,6 +64,9 @@ IPC := $(OBJ)/ipc/ipc_protocol.o \
 # Commandes IPC du service : relie l'arbre des commandes à core/control.
 HANDLERS := $(OBJ)/app/handlers.o
 
+# Page web embarquée : web/index.html, compressée, en tableau C.
+WEB_PAGE := $(OBJ)/web/page.o
+
 # Faux AML pour les tests : remplace aml/transport.c et core/config.c.
 FAKE_AML := $(OBJ)/test/fake_aml.o
 
@@ -98,7 +101,7 @@ $(BIN)/sweetdawn: $(OBJ)/app/cli.o \
 $(BIN)/sweetdawn-service: $(OBJ)/app/service.o $(HANDLERS) \
                           $(AML_PROTOCOL) $(AML_TRANSPORT) \
                           $(CORE_CONFIG) $(CORE_STATE) $(CORE_SWEETDAWN) \
-                          $(CORE_CONTROL) $(COMMANDS) $(IPC)
+                          $(CORE_CONTROL) $(COMMANDS) $(IPC) $(WEB_PAGE)
 	$(CC) $^ $(JSON_LIBS) $(BLUETOOTH_LIBS) -o $@
 
 # Client : ne parle qu'au socket du service, jamais au Bluetooth.
@@ -157,6 +160,24 @@ test: $(TESTS)
 # src/aml/protocol.c  ->  bin/obj/aml/protocol.o
 $(OBJ)/%.o: src/%.c
 	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+# web/index.html  ->  bin/obj/web/page.c : gzip -9, puis octets en C.
+# -n : pas de date dans l'en-tête gzip, le résultat ne change qu'avec
+# la page (et l'ETag servi au navigateur aussi). od et gzip suffisent :
+# rien à installer sur le Raspberry Pi.
+$(OBJ)/web/page.c: web/index.html
+	@mkdir -p $(@D)
+	@{ echo '#include "web/page.h"'; \
+	   echo 'const unsigned char web_page_gzip[] = {'; \
+	   gzip -9 -n -c $< | od -An -v -tx1 | \
+	     sed -e 's/ *\([0-9a-f][0-9a-f]\)/0x\1,/g'; \
+	   echo '};'; \
+	   echo 'const size_t web_page_gzip_size = sizeof(web_page_gzip);'; \
+	 } > $@
+	@echo "page web : $$(gzip -9 -n -c $< | wc -c) octets compresses"
+
+$(OBJ)/web/page.o: $(OBJ)/web/page.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 # test/test_state.c  ->  bin/obj/test/test_state.o
