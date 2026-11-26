@@ -61,8 +61,8 @@ The full step-by-step guide is in the **[wiki](https://github.com/PicselVaot/Swe
 | [IPC protocol](https://github.com/PicselVaot/SweetDawn/wiki/IPC-protocol) | write your own client |
 | [Troubleshooting](https://github.com/PicselVaot/SweetDawn/wiki/Troubleshooting) | when something does not work |
 | [Development](https://github.com/PicselVaot/SweetDawn/wiki/Development) | code structure, tests, exploring the protocol |
-| [docs/COMMANDS.md](docs/COMMANDS.md) | every command, with its values and limits (in French) |
-| [docs/PROTOCOL.md](docs/PROTOCOL.md) | the AML005 Bluetooth protocol (in French) |
+| [docs/COMMANDS.md](docs/COMMANDS.md) | every command, with its values and limits |
+| [docs/PROTOCOL.md](docs/PROTOCOL.md) | the AML005 Bluetooth protocol |
 
 ## License
 
